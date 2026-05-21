@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import ReactECharts from 'echarts-for-react';
 
 const englishToChineseMap = {
-  // 核心音乐、情感与高频常用实词
+  // 核心音乐、情感与高频常用实词对照
   "Love": "爱", "Life": "生活", "Heart": "心", "Night": "夜晚", "Day": "白昼", "Time": "时间",
   "Girl": "女孩", "Boy": "男孩", "Way": "路途", "World": "世界", "Man": "男人", "Woman": "女人",
   "Dance": "起舞", "Song": "歌谣", "Music": "音乐", "Blue": "忧郁蓝色", "Red": "炽热红色", "Star": "星辰",
@@ -44,7 +44,7 @@ const englishToChineseMap = {
   "Drought": "干旱", "Fire": "火灾", "Smoke": "烟雾", "Fog": "浓雾", "Mist": "薄雾", "Dew": "露水",
   "Frost": "严霜", "Ice": "冰霜", "Snow": "白雪", "Rain": "雨水", "Cloud": "浮云", "Sky": "天空",
   "Air": "空气", "Wind": "微风", "Dust": "尘埃", "Dirt": "泥土", "Mud": "烂泥", "Clay": "粘土",
-  "Sand": "细沙", "Rock": "岩石", "Stone": "石头", "Pebble": "鹅卵石", "Gravel": "砾石", "Soil": "土壤",
+  "Sand": "细沙", "Stone": "石头", "Pebble": "鹅卵石", "Gravel": "砾石", "Soil": "土壤",
   "Land": "陆地", "Mountain": "山脉", "Hill": "小山", "Valley": "山谷", "Canyon": "峡谷", "Cliff": "悬崖",
   "Cave": "洞穴", "Forest": "森林", "Wood": "树林", "Jungle": "丛林", "Desert": "沙漠", "Plains": "平原",
   "Meadow": "草地", "Swamp": "沼泽", "Marsh": "湿地", "Island": "岛屿", "Peninsula": "半岛", "Cape": "海角",
@@ -58,23 +58,8 @@ const englishToChineseMap = {
 };
 
 const TimelineChart = ({ data }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [viewType, setViewType] = useState('artist');
-
-  useEffect(() => {
-    let timer;
-    if (isPlaying && data && data.length > 0) {
-      timer = setInterval(() => {
-        setCurrentIndex((prev) => (prev + 1) % data.length);
-      }, 3500);
-    }
-    return () => clearInterval(timer);
-  }, [isPlaying, data]);
 
   if (!data || data.length === 0) return null;
-
-  const currentData = data[currentIndex];
 
   const isNoiseWord = (word) => {
     if (!word) return true;
@@ -85,21 +70,12 @@ const TimelineChart = ({ data }) => {
       "bonus", "track", "recorded", "re-recorded", "part", "deluxe", "edition", 
       "anniversary", "remasters", "remastering", "session", "sessions", 
       "broadcast", "concert", "unplugged", "vol", "volume", "hits", "greatest", 
-      "collection", "ep", "lp", "原声带", "重录版", "重录", "原声", "现场", 
+      "collection", "ep", "lp", "one", "two", "three", "four", "five",
+      "原声带", "重录版", "重录", "原声", "现场", 
       "现场版", "独奏", "单曲", "专辑", "特别版", "豪华版", "周年纪念", "纪念版", 
       "精选", "混音", "独唱"
     ];
     return noiseList.some(noise => lower.includes(noise));
-  };
-
-  const clusterColors = ['#0D9488', '#DB2777', '#7C3AED', '#EA580C', '#2563EB'];
-
-  const getColor = (str) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return clusterColors[Math.abs(hash) % clusterColors.length];
   };
 
   const translateKeyword = (word) => {
@@ -108,141 +84,174 @@ const TimelineChart = ({ data }) => {
     return matchedKey ? englishToChineseMap[matchedKey] : null;
   };
 
-  const combinedNodes = [];
-  const filteredArtists = currentData.artists.filter(item => !isNoiseWord(item.name));
-  const filteredWords = currentData.words.filter(item => !isNoiseWord(item.name));
+  // 13个年代从左到右的高亮霓虹色谱
+  const decadeColors = [
+    '#2E86DE', // 1960-1964: 经典克莱因蓝
+    '#00B894', // 1965-1969: 复古薄荷绿
+    '#10AC84', // 1970-1974: 翡翠松石绿
+    '#00CEC9', // 1975-1979: 电光湖水蓝
+    '#5F27CD', // 1980-1984: 绚丽迪斯科紫
+    '#8395A7', // 1985-1989: 典雅太空灰
+    '#EE5A24', // 1990-1994: 狂放珊瑚橙
+    '#EA2027', // 1995-1999: 激情烈焰红
+    '#FFC312', // 2000-2004: 数字暖阳黄
+    '#C4E538', // 2005-2009: 灵动萤草绿
+    '#0652DD', // 2010-2014: 浩瀚深海蓝
+    '#12CBC4', // 2015-2019: 梦幻极光青
+    '#FDA7DF'  // 2020-2024: 青春蔷薇粉
+  ];
 
-  if (viewType === 'artist') {
-    const artistValues = filteredArtists.map(item => item.value);
-    const maxVal = artistValues.length > 0 ? Math.max(...artistValues) : 1;
-    const minVal = artistValues.length > 0 ? Math.min(...artistValues) : 1;
-    const valRange = maxVal - minVal || 1;
+  // 整合并计算所有年代的数据节点
+  const allNodes = [];
+  const decadeLabels = data.map(d => d.label);
 
-    filteredArtists.forEach((item) => {
-      const ratio = (item.value - minVal) / valRange;
-      const fontSize = Math.round(11 + ratio * 15); // 映射到 11px - 26px
-      const color = getColor(item.name);
-      combinedNodes.push({
-        id: `artist_${item.name}`,
-        name: item.name,
-        value: item.value,
-        symbolSize: fontSize * 2.3,
-        symbol: 'circle',
-        itemStyle: { color: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderWidth: 0 },
-        label: {
-          show: true, color: color, fontSize: fontSize, fontWeight: 'bold',
-          textShadowBlur: 4, textShadowColor: 'rgba(255, 255, 255, 0.9)', opacity: 1
-        },
-        category: 0
-      });
-    });
-  } else {
-    // 过滤出能够完美汉化的中文热词
+  data.forEach((decadeData, decadeIndex) => {
+    // 筛选前 4 名歌手
+    const filteredArtists = decadeData.artists
+      .filter(item => !isNoiseWord(item.name))
+      .slice(0, 4);
+
+    // 筛选前 4 名热词（具备翻译对照）
     const translatedWords = [];
-    filteredWords.forEach((item) => {
-      const translatedName = translateKeyword(item.name);
-      if (translatedName) {
-        translatedWords.push({
-          ...item,
-          translatedName
-        });
+    decadeData.words.forEach(item => {
+      if (!isNoiseWord(item.name)) {
+        const trans = translateKeyword(item.name);
+        if (trans) {
+          translatedWords.push({
+            ...item,
+            translatedName: trans
+          });
+        }
       }
     });
+    const filteredWords = translatedWords.slice(0, 4);
 
-    const wordValues = translatedWords.map(item => item.value);
-    const maxVal = wordValues.length > 0 ? Math.max(...wordValues) : 1;
-    const minVal = wordValues.length > 0 ? Math.min(...wordValues) : 1;
+    // 合并为 8 个节点，交错分布
+    const mergedList = [
+      ...filteredArtists.map(a => ({ name: `🎙️ ${a.name}`, value: a.value, isArtist: true })),
+      ...filteredWords.map(w => ({ name: `🎵 ${w.translatedName}`, value: w.value, isArtist: false }))
+    ];
+
+    // 精准纵坐标位置分配 (Y 轴在 0 - 100 之间分出 8 个高度，完美避免重叠)
+    const yOffsets = [12, 24, 36, 48, 60, 72, 84, 96];
+
+    // 气泡大小自适应映射 (50px - 82px)
+    const values = mergedList.map(item => item.value);
+    const maxVal = values.length > 0 ? Math.max(...values) : 1;
+    const minVal = values.length > 0 ? Math.min(...values) : 1;
     const valRange = maxVal - minVal || 1;
 
-    translatedWords.forEach((item) => {
+    mergedList.forEach((item, itemIndex) => {
       const ratio = (item.value - minVal) / valRange;
-      const fontSize = Math.round(11 + ratio * 15); // 映射到 11px - 26px
-      const color = getColor(item.name);
-      combinedNodes.push({
-        id: `word_${item.name}`,
-        name: item.translatedName,
-        originalName: item.name,
-        value: item.value,
-        symbolSize: fontSize * 2.4,
-        symbol: 'circle',
-        itemStyle: { color: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', borderWidth: 0 },
-        label: {
-          show: true, color: color, fontSize: fontSize, fontWeight: 'bold', fontStyle: 'italic',
-          textShadowBlur: 4, textShadowColor: 'rgba(255, 255, 255, 0.9)', opacity: 1
-        },
-        category: 1
+      const size = Math.round(50 + ratio * 32);
+
+      allNodes.push({
+        // 二维直角坐标数据：[X轴分类索引, Y轴高低坐标, 热度频次]
+        value: [decadeIndex, yOffsets[itemIndex], item.value],
+        name: item.name,
+        symbolSize: size,
+        isArtist: item.isArtist,
+        decadeLabel: decadeData.label
       });
     });
-  }
+  });
 
   const option = {
     backgroundColor: 'transparent',
-    tooltip: {
-      show: true,
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      borderColor: '#EAEAEB',
-      borderWidth: 1,
-      textStyle: { color: '#212B36', fontSize: 13 },
-      shadowColor: 'rgba(0, 0, 0, 0.05)',
-      shadowBlur: 10,
-      formatter: (params) => {
-        if (!params.data.name) return '';
-        const isArtist = params.data.category === 0;
-        const displayName = isArtist ? params.data.name : `${params.data.name} (${params.data.originalName})`;
-        return `<div style="padding: 4px 8px; font-family: sans-serif;">
-          <b style="color: ${params.data.label?.color || '#212B36'}; font-size: 14px;">${displayName}</b><br/>
-          <span style="color: #637381; margin-top: 4px; display: inline-block; font-size: 12px;">
-            ${isArtist ? '🎙️ 代表歌手活跃度 (曲目数)' : '🎵 歌名流行热词频次'}: <b>${params.data.value}</b>
-          </span>
-        </div>`;
+    tooltip: { show: false }, // 彻底关停 Tooltip 以实现 100% 静态展示
+    grid: {
+      left: '3%',
+      right: '3%',
+      bottom: '12%',
+      top: '10%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: decadeLabels,
+      boundaryGap: true,
+      axisLine: { lineStyle: { color: '#E5E8EB', width: 1.5 } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: '#637381',
+        fontSize: 12,
+        fontWeight: 'bold',
+        margin: 16,
+        fontFamily: 'monospace',
+        interval: 0, // 确保 13 个年代全部显式渲染
+        rotate: 15   // 轻微斜置防拥挤
+      },
+      splitLine: {
+        show: true,
+        lineStyle: {
+          color: 'rgba(0, 0, 0, 0.035)',
+          type: 'dashed'
+        }
       }
     },
-    series: [{
-      type: 'graph',
-      layout: 'force',
-      force: { repulsion: viewType === 'artist' ? 100 : 120, gravity: 0.05, layoutAnimation: true },
-      left: '2%', right: '2%', top: '2%', bottom: '2%',
-      roam: true, draggable: true,
-      label: { show: true, position: 'inside', formatter: '{b}', fontFamily: 'Outfit, Inter, system-ui, sans-serif' },
-      data: combinedNodes,
-      links: []
-    }]
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 106,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { show: false },
+      splitLine: { show: false }
+    },
+    series: [
+      {
+        type: 'scatter',
+        data: allNodes,
+        symbol: 'circle',
+        itemStyle: {
+          color: function (params) {
+            const xIndex = params.data.value[0];
+            return decadeColors[xIndex % decadeColors.length];
+          },
+          borderColor: '#FFFFFF',
+          borderWidth: 2,
+          shadowBlur: 14,
+          shadowColor: 'rgba(0, 0, 0, 0.08)',
+          shadowOffsetY: 5
+        },
+        label: {
+          show: true,
+          position: 'inside',
+          formatter: function (params) {
+            return params.data.name;
+          },
+          fontSize: 10,
+          fontWeight: '900',
+          color: '#FFFFFF',
+          textBorderColor: 'rgba(0,0,0,0.22)',
+          textBorderWidth: 2,
+          fontFamily: 'Outfit, Inter, system-ui, sans-serif'
+        },
+        silent: true // 屏蔽鼠标捕获与 Hover 特效，确保完全静态且极度流畅
+      }
+    ]
   };
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '660px', width: '100%', gap: '15px', boxSizing: 'border-box' }}>
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '620px', width: '100%', gap: '15px', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.06)', paddingBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '18px', color: '#212B36', fontWeight: '800', letterSpacing: '-0.02em' }}>
-            流行音乐年代星系 ({viewType === 'artist' ? '代表歌手活跃度' : '歌名流行中文热词'})
+            🪐 年代文化时空长廊 (1960 - 2024 流行歌手与汉化歌名热词流)
           </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#637381' }}>
-            {viewType === 'artist' ? '🎙️ 粗体文字为年代代表歌手，大小代表活跃歌单曲目数。' : '🎵 粗斜体字为歌曲名字里最流行的英文单词已翻译成的中文热词。'}
+            🎨 60年音乐浪潮一次性尽收眼底：🎙️ 代表年代活跃歌手，🎵 代表歌曲名字里的流行热词。从左到右气泡颜色自适应形成唯美霓虹历史光谱流！
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.04)', padding: '4px', borderRadius: '30px' }}>
-            <button onClick={() => setViewType('artist')} style={{ border: 'none', background: viewType === 'artist' ? '#00A896' : 'transparent', color: viewType === 'artist' ? '#FFFFFF' : '#637381', padding: '6px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}>🎙️ 代表歌手</button>
-            <button onClick={() => setViewType('word')} style={{ border: 'none', background: viewType === 'word' ? '#00A896' : 'transparent', color: viewType === 'word' ? '#FFFFFF' : '#637381', padding: '6px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}>🎵 歌名热词</button>
-          </div>
-          <div style={{ background: 'rgba(0, 168, 150, 0.12)', border: '1px solid #00A896', borderRadius: '50px', padding: '6px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#00A896', animation: isPlaying ? 'pulse 1.5s infinite' : 'none' }}></span>
-            <span style={{ color: '#008274', fontWeight: '800', fontSize: '16px', fontFamily: 'monospace' }}>{currentData.label} 年代</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ background: 'rgba(0, 168, 150, 0.08)', color: '#008274', border: '1px solid rgba(0, 168, 150, 0.25)', borderRadius: '50px', padding: '5px 15px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '800' }}>
+            <span>🎨 纯粹视觉全景展卷</span>
           </div>
         </div>
       </div>
       <div style={{ flexGrow: 1, width: '100%', position: 'relative', minHeight: '380px', backgroundColor: 'rgba(255, 255, 255, 0.35)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.6)', overflow: 'hidden' }}>
-        <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={true} lazyUpdate={true} />
+        <ReactECharts option={option} style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0 }} notMerge={true} lazyUpdate={true} />
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', padding: '14px 20px 10px 20px', background: 'rgba(255, 255, 255, 0.45)', border: '1px solid rgba(255, 255, 255, 0.6)', borderRadius: '12px', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <button onClick={() => setIsPlaying(!isPlaying)} style={{ background: '#00A896', border: 'none', color: '#FFFFFF', borderRadius: '50%', width: '42px', height: '42px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {isPlaying ? <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="5" y="4" width="4" height="16" rx="1" /><rect x="15" y="4" width="4" height="16" rx="1" /></svg> : <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style={{ marginLeft: '2px' }}><path d="M8 5v14l11-7z" /></svg>}
-          </button>
-          <input type="range" min="0" max={data.length - 1} value={currentIndex} onChange={(e) => { setCurrentIndex(parseInt(e.target.value)); setIsPlaying(false); }} style={{ flexGrow: 1, cursor: 'pointer', accentColor: '#00A896' }} />
-        </div>
-      </div>
-      <style>{`@keyframes pulse { 0% { transform: scale(0.95); opacity: 0.6; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.6; } }`}</style>
     </div>
   );
 };
