@@ -566,9 +566,29 @@ const ToggleableChordRadar = ({ sunburstData, graphData, radarFeatures, radarNam
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        @keyframes eq-bounce-1 {
+          0% { height: 6px; }
+          100% { height: 26px; }
+        }
+        @keyframes eq-bounce-2 {
+          0% { height: 12px; }
+          100% { height: 32px; }
+        }
+        @keyframes eq-bounce-3 {
+          0% { height: 4px; }
+          100% { height: 20px; }
+        }
+        @keyframes eq-bounce-4 {
+          0% { height: 14px; }
+          100% { height: 28px; }
+        }
+        @keyframes eq-bounce-5 {
+          0% { height: 8px; }
+          100% { height: 24px; }
+        }
       `}</style>
 
-      {/* 背景超模糊霓虹氛围层 (Ambient Glow) */}
+      {/* 1. 底层专辑封面大背景（零模糊高清呈现） */}
       <div 
         style={{
           position: 'absolute',
@@ -579,52 +599,134 @@ const ToggleableChordRadar = ({ sunburstData, graphData, radarFeatures, radarNam
           backgroundImage: coverUrl ? `url(${coverUrl})` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          filter: 'blur(55px) saturate(180%)',
-          opacity: coverUrl ? 0.14 : 0,
-          transition: 'background-image 0.8s ease-in-out, opacity 0.8s ease-in-out',
+          opacity: coverUrl ? 0.38 : 0, // 显著调高不透明度，细节一览无余
+          transition: 'background-image 0.6s ease-in-out, opacity 0.6s ease-in-out',
           zIndex: 0,
           pointerEvents: 'none'
         }}
       />
 
-      {/* 主体图表区域，置于背景层之上 */}
-      <div style={{ display: 'flex', height: '100%', width: '100%', zIndex: 1, position: 'relative' }}>
-        {/* Left: Sunburst + Chord Ribbons */}
-        <div style={{ flex:'0 0 60%', height:'100%' }}>
-          <ReactECharts
-            ref={echartsRef}
-            key="chord-sunburst"
-            option={chordOptions}
-            style={{ height:'100%', width:'100%' }}
-            onEvents={chordEvents}
-          />
+      {/* 2. 极薄亮色调和层（去掉任何朦胧模糊，完美还原细节并保障对比度） */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.42) 100%)',
+          opacity: coverUrl ? 1 : 0,
+          transition: 'opacity 0.6s ease-in-out',
+          zIndex: 0,
+          pointerEvents: 'none'
+        }}
+      />
+
+      {/* 主体图表区域，置于背景层之上，内部包含两个浮动的羊脂白玉卡片保护图表可读性 */}
+      <div 
+        style={{ 
+          display: 'flex', 
+          height: '100%', 
+          width: '100%', 
+          zIndex: 1, 
+          position: 'relative',
+          padding: '30px 10px',
+          boxSizing: 'border-box'
+        }}
+      >
+        {/* Left Card: Sunburst + Chord Ribbons */}
+        <div 
+          style={{ 
+            flex:'0 0 60%', 
+            height:'100%', 
+            padding: '0 20px 0 30px', 
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            style={{
+              height: '92%', // 精致缩减高度
+              width: '100%',
+              background: coverUrl ? 'rgba(255, 255, 255, 0.88)' : '#FFFFFF',
+              backdropFilter: coverUrl ? 'blur(16px)' : 'none',
+              WebkitBackdropFilter: coverUrl ? 'blur(16px)' : 'none',
+              borderRadius: '24px',
+              border: coverUrl ? '1px solid rgba(255, 255, 255, 0.7)' : '1px solid rgba(0,0,0,0.03)',
+              boxShadow: coverUrl ? '0 12px 36px rgba(0, 0, 0, 0.05)' : 'none',
+              transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box'
+            }}
+          >
+            <ReactECharts
+              ref={echartsRef}
+              key="chord-sunburst"
+              option={chordOptions}
+              style={{ height:'100%', width:'100%' }}
+              onEvents={chordEvents}
+            />
+          </div>
         </div>
 
-        {/* Right: Radar */}
-        <div style={{ flex:'0 0 40%', height:'100%', display:'flex', flexDirection:'column', justifyContent:'center' }}>
-          {radarFeatures ? (
-            <ReactECharts option={radarOptions} style={{ height:'100%', width:'100%' }} />
-          ) : (
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#AAAAAA', fontSize:'14px', flexDirection:'column', gap:'12px' }}>
-              <div style={{ fontSize:'48px', opacity:0.3 }}>🎵</div>
-              <span>悬停旭日图节点，查看流派特征七维 analysis</span>
-            </div>
-          )}
+        {/* Right Card: Radar */}
+        <div 
+          style={{ 
+            flex:'0 0 40%', 
+            height:'100%', 
+            padding: '0 30px 0 20px', 
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            style={{
+              height: '92%', // 精致缩减高度，更有微型仪表感
+              width: '90%',  // 宽度缩减 10%，让出更多背景空间
+              background: coverUrl ? 'rgba(255, 255, 255, 0.88)' : '#FFFFFF',
+              backdropFilter: coverUrl ? 'blur(16px)' : 'none',
+              WebkitBackdropFilter: coverUrl ? 'blur(16px)' : 'none',
+              borderRadius: '24px',
+              border: coverUrl ? '1px solid rgba(255, 255, 255, 0.7)' : '1px solid rgba(0,0,0,0.03)',
+              boxShadow: coverUrl ? '0 12px 36px rgba(0, 0, 0, 0.05)' : 'none',
+              transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '16px',
+              boxSizing: 'border-box'
+            }}
+          >
+            {radarFeatures ? (
+              <ReactECharts option={radarOptions} style={{ height:'100%', width:'100%' }} />
+            ) : (
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#AAAAAA', fontSize:'14px', flexDirection:'column', gap:'12px' }}>
+                <div style={{ fontSize:'48px', opacity:0.3 }}>🎵</div>
+                <span>悬停旭日图节点，查看流派特征七维 analysis</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 优雅磨砂玻璃黑胶悬浮唱片代表歌曲名片 */}
+      {/* 优雅磨砂玻璃悬浮代表歌曲名片 */}
       {repSong && coverUrl && (
         <div 
           style={{
             position: 'absolute',
             bottom: '24px',
-            left: '24px',
+            right: '24px', // 完美移至右下角，处于雷达图正下方
             display: 'flex',
             alignItems: 'center',
             gap: '16px',
             padding: '12px 18px',
-            background: 'rgba(255, 255, 255, 0.45)',
+            background: 'rgba(255, 255, 255, 0.55)',
             backdropFilter: 'blur(20px) saturate(120%)',
             WebkitBackdropFilter: 'blur(20px) saturate(120%)',
             border: '1px solid rgba(255, 255, 255, 0.45)',
@@ -649,7 +751,7 @@ const ToggleableChordRadar = ({ sunburstData, graphData, radarFeatures, radarNam
                 borderRadius: '50%',
                 objectFit: 'cover',
                 border: '2px solid rgba(255, 255, 255, 0.8)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                 animation: 'spin 12s linear infinite'
               }}
             />
@@ -670,9 +772,27 @@ const ToggleableChordRadar = ({ sunburstData, graphData, radarFeatures, radarNam
 
           {/* 歌曲详情 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', overflow: 'hidden' }}>
-            <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#88B04B', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              🔥 流派代表作
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#88B04B', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                🔥 流派代表作
+              </div>
+              {/* 微缩跳动频谱波形 */}
+              <div 
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'flex-end', 
+                  gap: '2px', 
+                  height: '10px', 
+                  paddingBottom: '1px'
+                }}
+              >
+                <div style={{ width: '2px', background: '#88B04B', borderRadius: '1px', height: '4px', animation: 'eq-bounce-1 0.8s ease-in-out infinite alternate' }} />
+                <div style={{ width: '2px', background: '#88B04B', borderRadius: '1px', height: '8px', animation: 'eq-bounce-2 0.5s ease-in-out infinite alternate' }} />
+                <div style={{ width: '2px', background: '#88B04B', borderRadius: '1px', height: '3px', animation: 'eq-bounce-3 0.7s ease-in-out infinite alternate' }} />
+                <div style={{ width: '2px', background: '#88B04B', borderRadius: '1px', height: '6px', animation: 'eq-bounce-4 0.6s ease-in-out infinite alternate' }} />
+              </div>
             </div>
+
             <div 
               style={{ 
                 fontSize: '13px', 
