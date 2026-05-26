@@ -226,9 +226,12 @@ const TimelineEvolutionCombined = ({ timelineData, wordsData, scatterData }) => 
     return 1960;
   };
 
-  // 6. 处理热词气泡的节点坐标与大小
-  // 因为每个区间有 Top 8 个词，为了纵向错开，分出 8 个高度
-  const yOffsets = [5, 17, 29, 41, 53, 65, 77, 88];
+  // 6. 处理热词节点坐标与大小（常规文字词云黄金比例“蜂巢避障”防重叠紧凑方案）
+  // 优化：横向 X 轴在 medianYear 周围分左(-1)、中(0)、右(1)三列错开；
+  // 纵向 Y 轴划分 8 个精确互斥且大幅拉开垂直安全距离的层级，确保长方形汉字包围盒在三维格点中 100% 互斥无重叠
+  const xOffsets = [0, 0, -1, 1, -1, 1, -1, 1];
+  const yOffsets = [48, 16, 64, 32, 32, 64, 80, 10];
+
   const allBubbleNodes = useMemo(() => {
     const nodes = [];
     wordsData.forEach((decadeData) => {
@@ -256,19 +259,39 @@ const TimelineEvolutionCombined = ({ timelineData, wordsData, scatterData }) => 
 
       filteredWords.forEach((item, itemIndex) => {
         const ratio = (item.value - minVal) / valRange;
-        const size = Math.round(38 + ratio * 28); // 气泡尺度调节在 38px - 66px 之间，防止过大遮挡
+        // 常规词云文字字号在 10px 到 26px 之间，完美反衬频次权重
+        const fontSize = Math.round(10 + ratio * 16);
+        // 隐式交互区（透明Hitbox）大小与字号正相关，便于 hover 抓取
+        const hitboxSize = Math.round(24 + ratio * 20); 
         const color = getWordColor(item.name);
 
-        // 倒置重力分配：让 Top 词汇 (itemIndex 越小, 出现次数越多) 获得较大的 Y 偏移 (yOffsets 的后端元素)
-        // 使得大词自动浮于最上面，小词垂挂在最下层
-        const reversedYIndex = filteredWords.length - 1 - itemIndex;
+        // 计算带偏差的 X 年份，限制在 1960 - 2024 的安全范围内
+        const targetYear = Math.max(1960, Math.min(2024, medianYear + xOffsets[itemIndex]));
 
         nodes.push({
-          // 将年份的字符串代表作为 X，Y 轴在 0 - 100 分布
-          value: [medianYear.toString(), yOffsets[reversedYIndex], item.value],
-          name: `🎵 ${item.translatedName}`,
+          // 将偏差年份的字符串代表作为 X，Y 轴在 0 - 100 分布
+          value: [targetYear.toString(), yOffsets[itemIndex], item.value],
+          name: item.translatedName, // 仅保留文字，去掉“🎵”图标，呈现清爽词云
+          symbolSize: hitboxSize,
+          itemStyle: {
+            color: 'transparent',
+            borderColor: 'transparent',
+            borderWidth: 0,
+            shadowBlur: 0
+          },
+          label: {
+            show: true,
+            position: 'inside',
+            formatter: '{b}', // 显式设定展示数据项名称（汉化歌词词汇本身），而不是默认展示 value 中的第三个数字值
+            fontSize: fontSize,
+            color: color,
+            fontWeight: '900',
+            fontFamily: 'Outfit, Inter, system-ui, sans-serif',
+            textBorderColor: 'rgba(255, 255, 255, 0.95)', // 晶莹微光白边，在网格或图表线上阅读极佳
+            textBorderWidth: 2,
+            rotate: 0 // 取消旋转，让全部词汇保持横排以适应长方形包围盒防碰撞模型，完美杜绝重叠！
+          },
           originalWord: item.name,
-          symbolSize: size,
           clusterColor: color,
           decadeLabel: decadeData.label
         });
@@ -555,39 +578,41 @@ const TimelineEvolutionCombined = ({ timelineData, wordsData, scatterData }) => 
       },
       // 绘图数据
       series: [
-        // Grid 1 (气泡图) - 散点系列
+        // Grid 1 (常规文字词云) - 散点系列 (节点自适应呈现无圆形气泡背景)
         {
-          name: '年代词云气泡',
+          name: '年代词云',
           type: 'scatter',
           xAxisIndex: 1,
           yAxisIndex: 1,
           data: allBubbleNodes,
           symbol: 'circle',
-          clip: true, // 开启裁剪，防止气泡溢出 grid 标界遮挡中间时间轴
+          clip: true, // 开启裁剪，防止文字溢出 grid 标界遮挡中间时间轴
+          // 全局项设为高透，样式与尺寸由 data 节点自身根据出现频率完全驱动
           itemStyle: {
-            color: function (params) {
-              return params.data.clusterColor;
-            },
-            borderColor: '#FFFFFF',
-            borderWidth: 2,
-            shadowBlur: 14,
-            shadowColor: 'rgba(148, 163, 184, 0.1)',
-            shadowOffsetY: 4
+            color: 'transparent',
+            borderColor: 'transparent',
+            borderWidth: 0,
+            shadowBlur: 0
           },
+          // 全局兜底 label 格式化，确保绝对展示词汇汉化名称，而不是 value 数字
           label: {
             show: true,
             position: 'inside',
-            formatter: function (params) {
-              return params.data.name;
-            },
-            fontSize: 9,
-            fontWeight: '900',
-            color: '#FFFFFF',
-            textBorderColor: 'rgba(0,0,0,0.2)',
-            textBorderWidth: 1.5,
-            fontFamily: 'Outfit, Inter, system-ui, sans-serif'
+            formatter: '{b}'
           },
-          silent: false // 允许触发 tooltip 联动
+          emphasis: {
+            scale: true, // 悬停时文字微微缩放，提供动感回馈
+            itemStyle: {
+              color: 'transparent',
+              borderColor: 'transparent'
+            },
+            label: {
+              fontWeight: '900',
+              textShadowColor: 'rgba(0, 0, 0, 0.15)',
+              textShadowBlur: 5
+            }
+          },
+          silent: false
         },
         // Grid 0 (声学折线图) - 7 条折线系列
         {
