@@ -32,7 +32,8 @@ const ToggleableChordRadar = ({
   viewMode = 'both',
   hoveredCategory: externalHoveredCategory,
   setHoveredCategory: externalSetHoveredCategory,
-  selectedSong = null // 接收外层单曲选中状态以实现视图冰冻
+  selectedSong = null, // 接收外层单曲选中状态以实现视图冰冻
+  clickedGenre = null // 接收外层流派选中锁定状态以实现视图冰冻
 }) => {
   const [localHoveredCategory, setLocalHoveredCategory] = useState(null);
   const hoveredCategory = externalHoveredCategory !== undefined ? externalHoveredCategory : localHoveredCategory;
@@ -43,6 +44,11 @@ const ToggleableChordRadar = ({
   useEffect(() => {
     selectedSongRef.current = selectedSong;
   }, [selectedSong]);
+
+  const clickedGenreRef = useRef(clickedGenre);
+  useEffect(() => {
+    clickedGenreRef.current = clickedGenre;
+  }, [clickedGenre]);
 
   // ECharts instance ref – for direct imperative updates during animation
   const echartsRef    = useRef(null);
@@ -338,6 +344,7 @@ const ToggleableChordRadar = ({
     return {
       color: BASE_COLORS,
       tooltip: {
+        show: !clickedGenre, // 当流派已被锁定时，完全隐藏 tooltip，实现绝对冰冻视觉！
         trigger: 'item',
         appendToBody: true,
         backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#EEEEEE',
@@ -586,7 +593,7 @@ const ToggleableChordRadar = ({
     }
 
     return {
-      tooltip: { trigger:'item', appendToBody: true, padding: [6, 10], backgroundColor:'rgba(255,255,255,0.95)', borderColor:'#A8D8B9', textStyle:{color:'#333333',fontSize: 10,fontFamily:'"Outfit","Inter",sans-serif'}, extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-radius: 6px;' },
+      tooltip: { show: !clickedGenre, trigger:'item', appendToBody: true, padding: [6, 10], backgroundColor:'rgba(255,255,255,0.95)', borderColor:'#A8D8B9', textStyle:{color:'#333333',fontSize: 10,fontFamily:'"Outfit","Inter",sans-serif'}, extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-radius: 6px;' },
       legend: { 
         show: true, 
         top: viewMode === 'radar' ? '86%' : (isVertical ? '80%' : '75%'), 
@@ -617,18 +624,18 @@ const ToggleableChordRadar = ({
 
   const chordEvents = {
     click:     p => { 
-      if (selectedSongRef.current) return; // 歌曲选中时冻结点击切换（使用 ref 指针完美破解 ECharts 事件绑定闭包陷阱）
+      if (selectedSongRef.current || clickedGenreRef.current) return; // 歌曲或流派锁定时冻结点击切换
       if (p.seriesType === 'sunburst' && p.data?.features) onNodeClick(p.data); 
     },
     mouseover: p => { 
-      if (selectedSongRef.current) return; // 歌曲选中时彻底冰冻悬停，划入时不影响状态（使用 ref 实时最新判断）
+      if (selectedSongRef.current || clickedGenreRef.current) return; // 歌曲或流派锁定时彻底冰冻悬停
       if (p.seriesType === 'sunburst') { 
         if (p.data?.features) onNodeHover(p.data); 
         setHoveredCategory(p.name); 
       } 
     },
     mouseout:  p => { 
-      if (selectedSongRef.current) return; // 歌曲选中时彻底冰冻，划出时绝不重置清空状态
+      if (selectedSongRef.current || clickedGenreRef.current) return; // 歌曲或流派锁定时彻底冰冻
       if (p.seriesType === 'sunburst') setHoveredCategory(null); 
     }
   };
@@ -927,107 +934,7 @@ const ToggleableChordRadar = ({
         </div>
       )}
 
-      {/* 优雅磨砂玻璃悬浮代表歌曲名片 - 极微小药丸模式（只在雷达图卡片右上角显示，绝对不挡字） */}
-      {viewMode === 'radar' && repSong && coverUrl && (
-        <div 
-          style={{
-            position: 'absolute',
-            top: '8px',
-            right: '12px', 
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '3px 8px',
-            borderRadius: '12px',
-            border: '1px solid rgba(255, 255, 255, 0.65)',
-            boxShadow: '0 4px 12px 0 rgba(0, 0, 0, 0.05)',
-            maxWidth: '150px',
-            transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-            opacity: coverUrl ? 1 : 0,
-            transform: coverUrl ? 'translateY(0) scale(1)' : 'translateY(-10px) scale(0.95)',
-            zIndex: 10,
-            pointerEvents: 'none', // 确保绝不遮挡下层雷达图及驾驶舱任何组件的Hover/Click事件
-            overflow: 'hidden' // 确保背景底图完美截断在圆角内
-          }}
-        >
-          {/* Layer 0: 专辑封面底图磨砂质感背景层 */}
-          <div 
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundImage: coverUrl ? `url(${coverUrl})` : 'none',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              filter: 'blur(10px) saturate(110%)',
-              opacity: 0.15,
-              zIndex: 0
-            }}
-          />
-          
-          {/* Layer 1: Frosted Glass 微白半透明融合调和层 */}
-          <div 
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(255, 255, 255, 0.65)',
-              backdropFilter: 'blur(5px)',
-              WebkitBackdropFilter: 'blur(5px)',
-              zIndex: 1
-            }}
-          />
 
-          {/* Layer 2: 前景内容层 (必须配置 position: relative 和 zIndex: 2 以完美浮现于背景层之上) */}
-          {/* 旋转小唱片 */}
-          <div style={{ position: 'relative', width: '16px', height: '16px', flexShrink: 0, zIndex: 2 }}>
-            <img 
-              src={coverUrl} 
-              alt="Album Cover" 
-              style={{
-                width: '100%',
-                height: '100%',
-                borderRadius: '50%',
-                objectFit: 'cover',
-                border: '1px solid rgba(255, 255, 255, 0.8)',
-                animation: 'spin 12s linear infinite'
-              }}
-            />
-            <div 
-              style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '4px',
-                height: '4px',
-                borderRadius: '50%',
-                background: '#FFFFFF'
-              }}
-            />
-          </div>
-          {/* 迷你代表歌曲名 */}
-          <div 
-            style={{ 
-              position: 'relative',
-              zIndex: 2,
-              fontSize: '8.5px', 
-              fontWeight: '700', 
-              color: '#333333', 
-              whiteSpace: 'nowrap', 
-              overflow: 'hidden', 
-              textOverflow: 'ellipsis',
-              fontFamily: '"Outfit", "Inter", sans-serif'
-            }}
-          >
-            🎵 {repSong.title}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

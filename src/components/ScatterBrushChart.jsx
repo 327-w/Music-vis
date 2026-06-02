@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres }) => {
+const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clickedGenre = null }) => {
   const chartRef = useRef(null);
 
   // The cluster colors for a modern premium look
@@ -25,6 +25,7 @@ const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres }) => {
       containLabel: true
     },
     tooltip: {
+      show: !clickedGenre, // 流派锁定时不展示 tooltip，视觉彻底冰冻
       formatter: function (param) {
         return `
           <div style="font-weight: 600; font-size: 11px; line-height: 1.4;">${param.data[2]}</div>

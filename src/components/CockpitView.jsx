@@ -296,6 +296,7 @@ const CockpitView = ({
           <ToggleableChordRadar 
             viewMode="sunburst"
             selectedSong={selectedSong} // 传递单曲选中状态，以实现 ECharts 事件底层冻结
+            clickedGenre={clickedGenre} // 传递流派锁定状态，实现点击冻结
             hoveredCategory={hoveredCategory}
             setHoveredCategory={setHoveredCategory}
             sunburstData={data.sunburst}
@@ -306,12 +307,12 @@ const CockpitView = ({
             featureMaxes={data.featureMaxes}
             scatterData={data.scatter}
             onNodeClick={(node) => {
-              if (selectedSong) return; // 歌曲选中时冻结点击切换
+              if (selectedSong || clickedGenre) return; // 歌曲或流派已锁定选中时冻结点击切换
               setSelectedGenre(node);
               setClickedGenre(node); // 点击触发流派小窗弹出！
             }} 
             onNodeHover={(node) => {
-              if (selectedSong) return; // 歌曲选中时彻底冻结悬停，鼠标划过任何地方均不切换
+              if (selectedSong || clickedGenre) return; // 歌曲或流派已锁定选中时彻底冻结悬停，鼠标划过任何地方均不切换
               setSelectedGenre(node);
               setHoveredCategory(node ? node.name : null);
             }}
@@ -364,6 +365,7 @@ const CockpitView = ({
             <ToggleableChordRadar 
               viewMode="radar"
               selectedSong={selectedSong} // 传递单曲选中状态，以实现 ECharts 事件底层冻结
+              clickedGenre={clickedGenre} // 传递流派锁定状态，实现点击冻结
               hoveredCategory={hoveredCategory}
               setHoveredCategory={setHoveredCategory}
               sunburstData={data.sunburst}
@@ -374,12 +376,12 @@ const CockpitView = ({
               featureMaxes={data.featureMaxes}
               scatterData={data.scatter}
               onNodeClick={(node) => {
-                if (selectedSong) return; // 歌曲选中时冻结点击切换
+                if (selectedSong || clickedGenre) return; // 歌曲或流派已锁定选中时冻结点击切换
                 setSelectedGenre(node);
                 setClickedGenre(node); // 点击触发流派小窗弹出！
               }} 
               onNodeHover={(node) => {
-                if (selectedSong) return; // 歌曲选中时彻底冻结悬停，鼠标划过任何地方均不切换
+                if (selectedSong || clickedGenre) return; // 歌曲或流派已锁定选中时彻底冻结悬停，鼠标划过任何地方均不切换
                 setSelectedGenre(node);
                 setHoveredCategory(node ? node.name : null);
               }}
@@ -417,8 +419,10 @@ const CockpitView = ({
             <ScatterBrushChart 
               data={data.scatter} 
               selectedSong={selectedSong}
+              clickedGenre={clickedGenre} // 传递锁定的流派，用于在此状态下冰冻 KMeans 交互
               hoveredGenres={hoveredGenres}
               onBrush={(selectedIndices) => {
+                if (clickedGenre) return; // 流派已锁定时冻结框选交互
                 const selected = selectedIndices.map(i => data.scatter[i]);
                 setBrushedData(selected);
                 setSelectedSong(null);
@@ -800,7 +804,7 @@ const CockpitView = ({
                 </button>
               </div>
 
-              {/* 🧬 1. 流派专属歌名词云 */}
+              {/* 🧬 1. 流派专属歌名词云（胶囊标签云 - 优化版，大小层次更加鲜明分立） */}
               <div>
                 <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '800', marginBottom: '6px' }}>
                   🧬 核心歌名特征词云
@@ -813,19 +817,36 @@ const CockpitView = ({
                       gap: '5px', 
                       maxHeight: '90px', 
                       overflowY: 'auto', 
-                      padding: '4px',
+                      padding: '6px',
                       background: 'rgba(145, 158, 171, 0.04)',
-                      borderRadius: '10px',
+                      borderRadius: '12px',
                       border: '1px solid rgba(145, 158, 171, 0.06)'
                     }}
                   >
-                    {detail.words.map((item, idx) => {
+                    {detail.words.slice(0, 20).map((item, idx) => {
                       let fontSize = '8.5px';
-                      if (idx < 3) fontSize = '12px';
-                      else if (idx < 8) fontSize = '10.5px';
-                      else if (idx < 15) fontSize = '9.5px';
+                      let fontWeight = '500';
+                      if (idx < 3) {
+                        fontSize = '14.5px';
+                        fontWeight = '800';
+                      } else if (idx < 8) {
+                        fontSize = '11.5px';
+                        fontWeight = '700';
+                      } else if (idx < 14) {
+                        fontSize = '9.5px';
+                        fontWeight = '600';
+                      }
 
-                      const colors = ['#A8D8B9', '#B4A6CD', '#A2CBE6', '#F1A5B4', '#DDE29F', '#F3D291', '#E7AB87'];
+                      // 经典又充满品质感的柔和马卡龙配色
+                      const colors = [
+                        '#FF8A9A', // 甜美蔷薇粉
+                        '#6BBAA7', // 薄荷复古绿
+                        '#5B9BD5', // 晴空澄澈蓝
+                        '#B088F5', // 梦幻薰衣紫
+                        '#EDC948', // 阳光浅柠檬黄
+                        '#F28E2B', // 柔和珊瑚橙
+                        '#86BCB6'  // 莫兰迪青灰
+                      ];
                       const wordColor = colors[idx % colors.length];
 
                       return (
@@ -834,24 +855,30 @@ const CockpitView = ({
                           style={{
                             fontSize: fontSize,
                             color: wordColor,
-                            fontWeight: 'bold',
-                            padding: '2px 6px',
-                            background: 'rgba(255, 255, 255, 0.8)',
-                            borderRadius: '6px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                            fontWeight: fontWeight,
+                            padding: idx < 3 ? '4px 9px' : (idx < 8 ? '3px 7px' : '2px 5px'),
+                            background: 'rgba(255, 255, 255, 0.88)',
+                            border: '1px solid rgba(255, 255, 255, 0.5)',
+                            borderRadius: '8px',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
                             cursor: 'default',
-                            transition: 'all 0.2s ease',
-                            display: 'inline-block'
+                            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            userSelect: 'none'
                           }}
                           onMouseEnter={(e) => {
-                            e.target.style.transform = 'scale(1.15)';
-                            e.target.style.boxShadow = `0 4px 8px ${wordColor}25`;
+                            e.target.style.transform = 'translateY(-1px) scale(1.06)';
                             e.target.style.background = '#FFFFFF';
+                            e.target.style.borderColor = wordColor;
+                            e.target.style.boxShadow = `0 4px 10px rgba(0, 0, 0, 0.06), 0 2px 4px ${wordColor}15`;
                           }}
                           onMouseLeave={(e) => {
-                            e.target.style.transform = 'scale(1)';
-                            e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
-                            e.target.style.background = 'rgba(255, 255, 255, 0.8)';
+                            e.target.style.transform = 'none';
+                            e.target.style.background = 'rgba(255, 255, 255, 0.88)';
+                            e.target.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                            e.target.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.03)';
                           }}
                         >
                           {item.name}
@@ -877,17 +904,38 @@ const CockpitView = ({
                       style={{ width: '100%', height: '100%' }}
                       option={{
                         backgroundColor: 'transparent',
-                        grid: { left: 15, right: 10, top: 12, bottom: 22 },
+                        grid: { left: 5, right: 5, top: 22, bottom: 5, containLabel: true },
+                        legend: {
+                          show: true,
+                          top: 0,
+                          icon: 'circle',
+                          itemWidth: 5,
+                          itemHeight: 5,
+                          itemGap: 6,
+                          textStyle: { fontSize: 8, color: '#64748B', fontFamily: '"Outfit", "Inter", sans-serif' }
+                        },
                         tooltip: {
                           show: true,
                           trigger: 'axis',
                           appendToBody: true,
                           backgroundColor: 'rgba(255, 255, 255, 0.95)',
                           borderColor: '#EEEEEE',
-                          padding: [4, 8],
-                          textStyle: { color: '#333333', fontSize: 9.5, fontFamily: '"Outfit", "Inter", sans-serif' },
-                          formatter: '{b}年流行度: {c}%',
-                          extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-radius: 5px;'
+                          padding: [5, 8],
+                          textStyle: { color: '#333333', fontSize: 9, fontFamily: '"Outfit", "Inter", sans-serif' },
+                          extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-radius: 5px;',
+                          formatter: function(params) {
+                            let html = `<div style="font-weight:bold; font-size:9.5px; margin-bottom:3px; color:#1E293B;">📅 ${params[0].name}年</div>`;
+                            params.forEach(p => {
+                              html += `<div style="font-size:9px; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:2px;">
+                                <div style="display:flex; align-items:center; gap:3px; color:#64748B;">
+                                  <span style="display:inline-block; width:5px; height:5px; border-radius:50%; background-color:${p.color};"></span>
+                                  ${p.seriesName}
+                                </div>
+                                <span style="font-weight:800; color:#1E293B;">${p.value}%</span>
+                              </div>`;
+                            });
+                            return html;
+                          }
                         },
                         xAxis: {
                           type: 'category',
@@ -896,9 +944,9 @@ const CockpitView = ({
                           axisTick: { show: false },
                           axisLabel: {
                             color: '#94A3B8',
-                            fontSize: 8.5,
+                            fontSize: 7.5,
                             fontWeight: 'bold',
-                            margin: 6
+                            margin: 5
                           }
                         },
                         yAxis: {
@@ -907,26 +955,51 @@ const CockpitView = ({
                           axisLine: { show: false },
                           axisLabel: { show: false }
                         },
-                        series: [{
-                          data: detail.timeline.map(item => item.popularity),
-                          type: 'line',
-                          smooth: true,
-                          symbol: 'circle',
-                          symbolSize: 4,
-                          showSymbol: false,
-                          itemStyle: { color: '#FF5E7E' },
-                          lineStyle: { width: 2, color: '#FF5E7E' },
-                          areaStyle: {
-                            color: {
-                              type: 'linear',
-                              x: 0, y: 0, x2: 0, y2: 1,
-                              colorStops: [
-                                { offset: 0, color: 'rgba(255, 94, 126, 0.28)' },
-                                { offset: 1, color: 'rgba(255, 94, 126, 0.0)' }
-                              ]
+                        series: [
+                          {
+                            name: '本流派',
+                            data: detail.timeline.map(item => item.popularity),
+                            type: 'line',
+                            smooth: true,
+                            symbol: 'circle',
+                            symbolSize: 4,
+                            showSymbol: false,
+                            itemStyle: { color: '#FF5E7E' },
+                            lineStyle: { width: 2, color: '#FF5E7E' },
+                            areaStyle: {
+                              color: {
+                                type: 'linear',
+                                x: 0, y: 0, x2: 0, y2: 1,
+                                colorStops: [
+                                  { offset: 0, color: 'rgba(255, 94, 126, 0.2)' },
+                                  { offset: 1, color: 'rgba(255, 94, 126, 0.0)' }
+                                ]
+                              }
                             }
+                          },
+                          {
+                            name: `大类 (${detail.parentName || '大类'})`,
+                            data: detail.parentTimeline ? detail.parentTimeline.map(item => item.popularity) : detail.timeline.map(item => item.popularity),
+                            type: 'line',
+                            smooth: true,
+                            symbol: 'circle',
+                            symbolSize: 3,
+                            showSymbol: false,
+                            itemStyle: { color: '#88B04B' },
+                            lineStyle: { width: 1.2, type: 'dashed', color: '#88B04B' }
+                          },
+                          {
+                            name: '大盘均值',
+                            data: detail.globalTimeline ? detail.globalTimeline.map(item => item.popularity) : detail.timeline.map(item => item.popularity),
+                            type: 'line',
+                            smooth: true,
+                            symbol: 'circle',
+                            symbolSize: 3,
+                            showSymbol: false,
+                            itemStyle: { color: '#A2CBE6' },
+                            lineStyle: { width: 1.2, type: 'dashed', color: '#A2CBE6' }
                           }
-                        }]
+                        ]
                       }}
                     />
                   </div>
