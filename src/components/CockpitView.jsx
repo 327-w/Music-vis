@@ -38,6 +38,42 @@ const CockpitView = ({
     radarName = data.sunburst[0].name;
   }
 
+  // 整理所有可用的对比流派（包含大类和子流派）
+  const compareGenresList = React.useMemo(() => {
+    if (!data || !data.sunburst) return [];
+    const list = [];
+    
+    data.sunburst.forEach(parent => {
+      const cleanParentName = parent.name.split('\n')[0].trim();
+      const parentEn = parent.name.split('\n')[1] ? parent.name.split('\n')[1].trim() : '';
+      const displayName = parentEn ? `${cleanParentName} (${parentEn})` : cleanParentName;
+
+      list.push({
+        id: `parent_${cleanParentName}`,
+        name: cleanParentName,
+        displayName: displayName,
+        features: parent.features,
+        isParent: true,
+        category: cleanParentName
+      });
+
+      if (parent.children) {
+        parent.children.forEach(child => {
+          list.push({
+            id: `child_${child.name}`,
+            name: child.name,
+            displayName: child.name,
+            features: child.features,
+            isParent: false,
+            category: cleanParentName
+          });
+        });
+      }
+    });
+
+    return list;
+  }, [data]);
+
   const [hoveredCategory, setHoveredCategory] = React.useState(null);
   const [isDetailExpanded, setIsDetailExpanded] = React.useState(true); // 控制歌曲多维悬浮窗的折叠与展开状态
 
@@ -86,42 +122,250 @@ const CockpitView = ({
   // 🔮 KMeans 分布对比的状态管理
   const [isKMeansCompareOpen, setIsKMeansCompareOpen] = React.useState(false);
   const [selectedKMeansGenres, setSelectedKMeansGenres] = React.useState([]);
+  const [hoveredKMeansGenreId, setHoveredKMeansGenreId] = React.useState(null);
+  const kmeansChartRef = React.useRef(null);
 
-  // 整理所有可用的对比流派（包含大类和子流派）
-  const compareGenresList = React.useMemo(() => {
-    if (!data || !data.sunburst) return [];
-    const list = [];
+  // 📝 歌词词频点击分析悬浮窗状态与拖拽平移状态
+  const [clickedWord, setClickedWord] = React.useState(null);
+  const [posWord, setPosWord] = React.useState({ x: 0, y: 0 });
+  const [isDraggingWord, setIsDraggingWord] = React.useState(false);
+  const draggingRefWord = React.useRef(false);
+  const dragStartPosWord = React.useRef({ x: 0, y: 0 });
+  const dragStartOffsetWord = React.useRef({ x: 0, y: 0 });
+
+  const handleMouseMoveWord = React.useCallback((e) => {
+    if (!draggingRefWord.current) return;
+    const dx = e.clientX - dragStartPosWord.current.x;
+    const dy = e.clientY - dragStartPosWord.current.y;
     
-    data.sunburst.forEach(parent => {
-      const cleanParentName = parent.name.split('\n')[0].trim();
-      const parentEn = parent.name.split('\n')[1] ? parent.name.split('\n')[1].trim() : '';
-      const displayName = parentEn ? `${cleanParentName} (${parentEn})` : cleanParentName;
+    setPosWord({
+      x: dragStartOffsetWord.current.x + dx,
+      y: dragStartOffsetWord.current.y + dy
+    });
+  }, []);
 
-      list.push({
-        id: `parent_${cleanParentName}`,
-        name: cleanParentName,
-        displayName: displayName,
-        features: parent.features,
-        isParent: true,
-        category: cleanParentName
-      });
+  const handleMouseUpWord = React.useCallback(() => {
+    draggingRefWord.current = false;
+    setIsDraggingWord(false);
+    window.removeEventListener('mousemove', handleMouseMoveWord);
+    window.removeEventListener('mouseup', handleMouseUpWord);
+  }, [handleMouseMoveWord]);
 
-      if (parent.children) {
-        parent.children.forEach(child => {
-          list.push({
-            id: `child_${child.name}`,
-            name: child.name,
-            displayName: child.name,
-            features: child.features,
-            isParent: false,
-            category: cleanParentName
-          });
+  const handleMouseDownWord = React.useCallback((e) => {
+    if (e.target.tagName.toLowerCase() === 'button' || e.target.closest('button') || e.target.closest('.echarts-for-react')) {
+      return;
+    }
+    
+    draggingRefWord.current = true;
+    setIsDraggingWord(true);
+    dragStartPosWord.current = { x: e.clientX, y: e.clientY };
+    dragStartOffsetWord.current = { ...posWord };
+    
+    window.addEventListener('mousemove', handleMouseMoveWord);
+    window.addEventListener('mouseup', handleMouseUpWord);
+    
+    e.preventDefault();
+  }, [posWord, handleMouseMoveWord, handleMouseUpWord]);
+
+  // 当切换词时重置位置
+  React.useEffect(() => {
+    setPosWord({ x: 0, y: 0 });
+  }, [clickedWord]);
+
+  // 🧬 计算选中歌词词频的流派与加权声学情感特征
+  const wordAnalysisData = React.useMemo(() => {
+    if (!clickedWord || !genreDetails) return null;
+    
+    const genreDist = [];
+    let totalFreq = 0;
+    
+    Object.keys(genreDetails).forEach(gName => {
+      const words = genreDetails[gName].words || [];
+      const found = words.find(w => w.name === clickedWord);
+      if (found) {
+        genreDist.push({
+          name: gName,
+          value: found.value
         });
+        totalFreq += found.value;
       }
     });
 
-    return list;
-  }, [data]);
+    genreDist.sort((a, b) => b.value - a.value);
+    let topGenres = genreDist.slice(0, 7);
+    if (genreDist.length > 7) {
+      const otherValue = genreDist.slice(7).reduce((sum, g) => sum + g.value, 0);
+      topGenres.push({ name: '其他流派', value: otherValue });
+    }
+
+    const featuresList = [
+      'danceability', 'energy', 'acousticness', 'valence', 'liveness', 'instrumentalness', 'speechiness'
+    ];
+    
+    const weightedFeatures = {
+      danceability: 0, energy: 0, acousticness: 0, valence: 0, liveness: 0, instrumentalness: 0, speechiness: 0
+    };
+    let weightSum = 0;
+
+    genreDist.forEach(item => {
+      const matched = compareGenresList.find(cg => cg.name === item.name);
+      if (matched && matched.features) {
+        featuresList.forEach(key => {
+          weightedFeatures[key] += (matched.features[key] ?? 0.5) * item.value;
+        });
+        weightSum += item.value;
+      }
+    });
+
+    const finalFeatures = {};
+    if (weightSum > 0) {
+      featuresList.forEach(key => {
+        finalFeatures[key] = weightedFeatures[key] / weightSum;
+      });
+    } else {
+      featuresList.forEach(key => {
+        finalFeatures[key] = 0.5;
+      });
+    }
+
+    return {
+      word: clickedWord,
+      genreDist: topGenres,
+      features: finalFeatures,
+      totalFreq
+    };
+  }, [clickedWord, genreDetails, compareGenresList]);
+
+  // 🌹 图表一：流派亲和度分析 -> ECharts 南丁格尔玫瑰图
+  const getWordGenreOption = () => {
+    if (!wordAnalysisData) return {};
+    const colors = ['#FF8A9A', '#6BBAA7', '#5B9BD5', '#B088F5', '#EDC948', '#F28E2B', '#86BCB6', '#CBD5E1'];
+
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        appendToBody: true,
+        backgroundColor: 'rgba(255, 255, 255, 0.96)',
+        padding: [6, 10],
+        textStyle: { color: '#333333', fontSize: 10, fontFamily: '"Outfit", sans-serif' },
+        formatter: '🏷️ {b}: <b>{c} 次</b> ({d}%)'
+      },
+      series: [
+        {
+          name: '流派词频浓度',
+          type: 'pie',
+          radius: [10, 52],
+          center: ['50%', '50%'],
+          roseType: 'area',
+          itemStyle: {
+            borderRadius: 4
+          },
+          color: colors,
+          label: {
+            show: true,
+            fontSize: 8,
+            color: '#64748B',
+            fontWeight: 'bold',
+            formatter: '{b}'
+          },
+          labelLine: {
+            length: 4,
+            length2: 4,
+            lineStyle: {
+              color: '#CBD5E1'
+            }
+          },
+          data: wordAnalysisData.genreDist
+        }
+      ]
+    };
+  };
+
+  // 🧪 图表二：声学维度情感指纹 -> ECharts 极坐标单轴柱状图
+  const getWordAcousticOption = () => {
+    if (!wordAnalysisData) return {};
+    
+    const translations = {
+      danceability: '可舞度',
+      energy: '能量',
+      acousticness: '声学度',
+      valence: '愉悦度',
+      liveness: '现场感',
+      instrumentalness: '器乐度',
+      speechiness: '言语度'
+    };
+    
+    const featuresList = [
+      'danceability', 'energy', 'acousticness', 'valence', 'liveness', 'instrumentalness', 'speechiness'
+    ];
+
+    const dataPoints = featuresList.map(key => ({
+      name: translations[key],
+      value: wordAnalysisData.features[key] ?? 0.5
+    }));
+
+    return {
+      backgroundColor: 'transparent',
+      angleAxis: {
+        type: 'category',
+        data: dataPoints.map(d => d.name),
+        boundaryGap: true,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#64748B',
+          fontSize: 8,
+          fontWeight: 'bold',
+          fontFamily: '"Outfit", sans-serif'
+        }
+      },
+      radiusAxis: {
+        min: 0,
+        max: 1.0,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { show: false },
+        splitLine: {
+          lineStyle: {
+            color: 'rgba(148, 163, 184, 0.08)',
+            type: 'dashed'
+          }
+        }
+      },
+      polar: {
+        radius: '70%',
+        center: ['50%', '50%']
+      },
+      tooltip: {
+        trigger: 'item',
+        appendToBody: true,
+        backgroundColor: 'rgba(255, 255, 255, 0.96)',
+        padding: [6, 10],
+        textStyle: { color: '#333333', fontSize: 10, fontFamily: '"Outfit", sans-serif' },
+        formatter: '🧪 {b}: <b>{c}</b>'
+      },
+      series: [
+        {
+          type: 'bar',
+          data: dataPoints.map((d, i) => {
+            const colors = ['#FF8A9A', '#6BBAA7', '#5B9BD5', '#B088F5', '#EDC948', '#F28E2B', '#86BCB6'];
+            return {
+              value: parseFloat(d.value.toFixed(2)),
+              itemStyle: {
+                color: colors[i % colors.length],
+                borderRadius: 2
+              }
+            };
+          }),
+          coordinateSystem: 'polar',
+          barWidth: '40%'
+        }
+      ]
+    };
+  };
+
+
 
   // 判断一首歌曲是否属于某个给定的对比流派（包含大类和子细分类的匹配，升级全兼容高防卫版）
   const isSongInGenre = React.useCallback((song, compareGenre) => {
@@ -381,7 +625,21 @@ const CockpitView = ({
     // ── 3. 流派散点系列：简洁的纯色圆点 ──
     const scatterSeries = selectedKMeansGenres.map((genre, idx) => {
       const activeColor = genreColors[idx % genreColors.length];
-      const genreSongs = data.scatter.filter(song => song && isSongInGenre(song, genre));
+      const genreSongs = data.scatter.filter(song => {
+        if (!song) return false;
+        const belong = isSongInGenre(song, genre);
+        if (!belong) return false;
+        
+        // 🧬 优先级排他过滤：若当前渲染的是 Parent 大流派系列，应当排除那些已经被单独作为子流派系列勾选了的歌曲，防止因为散点在坐标空间完全重合而被最后一个渲染的系列遮挡覆盖。
+        if (genre.isParent) {
+          const isBelongToSelectedChild = selectedKMeansGenres.some(otherGenre => {
+            if (otherGenre.id === genre.id || otherGenre.isParent) return false;
+            return isSongInGenre(song, otherGenre);
+          });
+          if (isBelongToSelectedChild) return false;
+        }
+        return true;
+      });
 
       return {
         name: genre.name,
@@ -400,18 +658,19 @@ const CockpitView = ({
         symbolSize: 5.5,
         itemStyle: {
           color: activeColor,
-          opacity: 0.88,
+          opacity: hoveredKMeansGenreId === null 
+            ? 0.88 
+            : (genre.id === hoveredKMeansGenreId ? 0.95 : 0.08), // 🧬 核心高级感降噪：被悬停流派保留高对比度，其余对比度调低成微淡虚影，不晃眼、极具艺术性
           borderColor: 'rgba(255,255,255,0.7)',
           borderWidth: 0.6
         },
         emphasis: {
-          focus: 'series',
-          scale: true,
+          scale: false, // 彻底关闭粒子的突然放大，防止产生粗糙的高亮闪烁
+          focus: 'none',
           itemStyle: {
-            borderWidth: 1.5,
-            borderColor: '#fff',
-            shadowBlur: 6,
-            shadowColor: activeColor
+            borderColor: 'rgba(255,255,255,0.9)',
+            borderWidth: 0.8,
+            shadowBlur: 0
           }
         },
         z: 2
@@ -734,8 +993,10 @@ const CockpitView = ({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('mousemove', handleMouseMoveGenre);
       window.removeEventListener('mouseup', handleMouseUpGenre);
+      window.removeEventListener('mousemove', handleMouseMoveWord);
+      window.removeEventListener('mouseup', handleMouseUpWord);
     };
-  }, [handleMouseMove, handleMouseUp, handleMouseMoveGenre, handleMouseUpGenre]);
+  }, [handleMouseMove, handleMouseUp, handleMouseMoveGenre, handleMouseUpGenre, handleMouseMoveWord, handleMouseUpWord]);
 
   // 计算旭日图悬停节点关联的所有流派名字（包含主流派旗下的所有子流派）
   const hoveredGenres = React.useMemo(() => {
@@ -1470,6 +1731,7 @@ const CockpitView = ({
                       return (
                         <span
                           key={item.name}
+                          onClick={() => setClickedWord(item.name)}
                           style={{
                             fontSize: fontSize,
                             color: wordColor,
@@ -1479,7 +1741,7 @@ const CockpitView = ({
                             border: '1px solid rgba(255, 255, 255, 0.5)',
                             borderRadius: '8px',
                             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
-                            cursor: 'default',
+                            cursor: 'pointer',
                             transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -1631,6 +1893,120 @@ const CockpitView = ({
           </>
         );
       })()}
+
+      {/* 📝 歌词词频点击深度分析拖拽悬浮窗 */}
+      {clickedWord && wordAnalysisData && (
+        <div
+          onMouseDown={handleMouseDownWord}
+          style={{
+            position: 'absolute',
+            left: '320px',
+            bottom: '20px',
+            width: '430px',
+            height: '280px',
+            zIndex: 102,
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(25px) saturate(130%)',
+            WebkitBackdropFilter: 'blur(25px) saturate(130%)',
+            border: '1px solid rgba(255, 255, 255, 0.9)',
+            borderRadius: '20px',
+            boxShadow: '0 16px 40px rgba(15, 23, 42, 0.12), 0 4px 16px rgba(0, 0, 0, 0.03)',
+            padding: '16px',
+            boxSizing: 'border-box',
+            transition: isDraggingWord ? 'opacity 0.4s ease' : 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+            transform: `translate(${posWord.x}px, ${posWord.y}px)`,
+            cursor: isDraggingWord ? 'grabbing' : 'grab',
+            userSelect: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}
+        >
+          {/* 头部：标题与关闭按钮 */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '1px solid rgba(145, 158, 171, 0.12)',
+              paddingBottom: '6px',
+              flexShrink: 0
+            }}
+          >
+            <div>
+              <h4 style={{ margin: 0, fontSize: '11.5px', fontWeight: '800', color: '#0F172A' }}>
+                🔤 歌词词汇「{clickedWord}」流派与情感全维透视
+              </h4>
+              <p style={{ margin: '2px 0 0 0', fontSize: '8px', color: '#94A3B8' }}>
+                基于所含流派歌曲中词频总数 {wordAnalysisData.totalFreq} 次的加权特征映射
+              </p>
+            </div>
+            <button
+              onClick={() => setClickedWord(null)}
+              title="关闭分析"
+              style={{
+                border: 'none',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                background: 'rgba(255, 94, 126, 0.1)',
+                color: '#FF5E7E',
+                fontSize: '9px',
+                fontWeight: '900',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+                outline: 'none'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* 可视化核心内容：左右分栏 */}
+          <div style={{ display: 'flex', flexGrow: 1, minHeight: 0, gap: '10px' }}>
+            
+            {/* 左半部分：流派亲和度分析（玫瑰图） */}
+            <div 
+              style={{ 
+                flex: 1, 
+                display: 'flex', 
+                flexDirection: 'column', 
+                borderRight: '1px solid rgba(145, 158, 171, 0.08)',
+                paddingRight: '6px'
+              }}
+            >
+              <div style={{ fontSize: '8px', color: '#64748B', fontWeight: '800', marginBottom: '2px' }}>
+                🌹 1. 流派词频浓度分布 (南丁格尔玫瑰)
+              </div>
+              <div style={{ flexGrow: 1, minHeight: 0, width: '100%' }}>
+                <ReactECharts
+                  style={{ width: '100%', height: '100%' }}
+                  option={getWordGenreOption()}
+                  notMerge={true}
+                />
+              </div>
+            </div>
+
+            {/* 右半部分：声学情感指纹图（极坐标单轴柱状图） */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: '8px', color: '#64748B', fontWeight: '800', marginBottom: '2px' }}>
+                🧪 2. 声学维度情感指纹 (极坐标波谱)
+              </div>
+              <div style={{ flexGrow: 1, minHeight: 0, width: '100%' }}>
+                <ReactECharts
+                  style={{ width: '100%', height: '100%' }}
+                  option={getWordAcousticOption()}
+                  notMerge={true}
+                />
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* 📊 流派声学特征横向大对比弹窗 */}
       {isCompareModalOpen && (
@@ -2145,19 +2521,27 @@ const CockpitView = ({
                         return (
                           <div
                             key={sg.id}
+                            onMouseEnter={() => {
+                              setHoveredKMeansGenreId(sg.id);
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredKMeansGenreId(null);
+                            }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
                               padding: '3px 10px',
                               borderRadius: '12px',
-                              background: 'rgba(255, 255, 255, 0.9)',
-                              border: `1px solid rgba(145, 158, 171, 0.18)`,
+                              background: hoveredKMeansGenreId === sg.id ? `${activeColor}0A` : 'rgba(255, 255, 255, 0.9)',
+                              border: hoveredKMeansGenreId === sg.id ? `1px solid ${activeColor}` : `1px solid rgba(145, 158, 171, 0.18)`,
                               fontSize: '9px',
                               fontWeight: 'bold',
-                              color: '#475569',
-                              boxShadow: '0 2px 4px rgba(0,0,0,0.01)',
-                              cursor: 'default',
+                              color: hoveredKMeansGenreId === sg.id ? '#0F172A' : '#475569',
+                              boxShadow: hoveredKMeansGenreId === sg.id ? `0 4px 12px ${activeColor}15` : '0 2px 4px rgba(0,0,0,0.01)',
+                              transform: hoveredKMeansGenreId === sg.id ? 'translateY(-1px) scale(1.03)' : 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                               userSelect: 'none'
                             }}
                           >
@@ -2165,7 +2549,8 @@ const CockpitView = ({
                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: activeColor, marginRight: '1px', display: 'inline-block' }}></span>
                             {sg.name}
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelectedKMeansGenres(selectedKMeansGenres.filter(g => g.id !== sg.id));
                               }}
                               style={{
@@ -2192,6 +2577,7 @@ const CockpitView = ({
                     {/* 对比散点图 (同心圆双层编码) */}
                     <div style={{ height: '250px', width: '100%', flexShrink: 0 }}>
                       <ReactECharts
+                        ref={kmeansChartRef}
                         style={{ width: '100%', height: '100%' }}
                         option={getKMeansCompareOption()}
                         notMerge={true}
