@@ -1,7 +1,7 @@
 import React, { useRef, useCallback, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clickedGenre = null, isSongInGenre }) => {
+const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clickedGenre = null, activeGenres = [] }) => {
   const chartRef = useRef(null);
   // 用 ref 保存最新的 props，避免事件回调中闭包过期
   const onBrushRef = useRef(onBrush);
@@ -157,10 +157,10 @@ const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clicked
             
             let alpha = 0.8;
             
-            // 1. 如果有 clickedGenre 流派锁定，非选中流派粒子立刻进行高对比淡化
+            // 1. 如果有 activeGenres 激活流派，非激活流派粒子立刻进行高对比淡化
             let isFilteredOut = false;
-            if (clickedGenre && isSongInGenre) {
-              if (!isSongInGenre(param.data, clickedGenre)) {
+            if (activeGenres && activeGenres.length > 0) {
+              if (!activeGenres.includes(songGenre)) {
                 isFilteredOut = true;
               }
             }
@@ -219,7 +219,7 @@ const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clicked
         zlevel: 1
       }
     ]
-  }), [data, hoveredGenres, selectedSong, clickedGenre, isSongInGenre]);
+  }), [data, hoveredGenres, selectedSong, clickedGenre, activeGenres]);
 
   // 使用 onEvents 绑定事件 —— echarts-for-react 的推荐方式，
   // 自动管理事件的绑定与解绑，避免手动操作实例的竞态问题。

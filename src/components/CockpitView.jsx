@@ -450,6 +450,28 @@ const CockpitView = ({
     }
   }, [compareGenresList]);
 
+  // 计算当前被锁定的流派下属的所有激活流派（包含大盘名称和子流派名称，全部规约清洗小写化，解耦给 Scatter 渲染）
+  const activeGenres = React.useMemo(() => {
+    if (!clickedGenre) return [];
+    
+    const targetName = clickedGenre.name.split('\n')[0].split('(')[0].trim();
+    if (!targetName) return [];
+
+    const isParent = clickedGenre.isParent || 
+      (clickedGenre.children && clickedGenre.children.length > 0) ||
+      compareGenresList.some(cg => cg && cg.name === targetName && cg.isParent);
+
+    if (isParent) {
+      const childrenNames = compareGenresList
+        .filter(cg => cg && cg.category === targetName && !cg.isParent)
+        .map(cg => (cg.name || '').toLowerCase().trim());
+      
+      return [targetName.toLowerCase().trim(), ...childrenNames];
+    } else {
+      return [targetName.toLowerCase().trim()];
+    }
+  }, [clickedGenre, compareGenresList]);
+
   // 默认选中对比流派，以便在一打开时就展示效果！
   React.useEffect(() => {
     if (compareGenresList.length > 0 && selectedCompareGenres.length === 0) {
@@ -1365,7 +1387,7 @@ const CockpitView = ({
               selectedSong={selectedSong}
               clickedGenre={clickedGenre} // 传递锁定的流派，用于在此状态下高亮对应粒子
               hoveredGenres={hoveredGenres}
-              isSongInGenre={isSongInGenre}
+              activeGenres={activeGenres}
               onBrush={(selectedIndices) => {
                 const selected = selectedIndices.map(i => data.scatter[i]);
                 setBrushedData(selected);
@@ -1865,111 +1887,177 @@ const CockpitView = ({
                 <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '800', marginBottom: '4px' }}>
                   📈 流派历代流行度变迁 (1960-2020)
                 </div>
-                {detail && detail.timeline ? (
-                  <div style={{ width: '100%', height: '110px' }}>
-                    <ReactECharts
-                      style={{ width: '100%', height: '100%' }}
-                      option={{
-                        backgroundColor: 'transparent',
-                        grid: { left: 5, right: 5, top: 22, bottom: 5, containLabel: true },
-                        legend: {
-                          show: true,
-                          top: 0,
-                          icon: 'circle',
-                          itemWidth: 5,
-                          itemHeight: 5,
-                          itemGap: 6,
-                          textStyle: { fontSize: 8, color: '#64748B', fontFamily: '"Outfit", "Inter", sans-serif' }
-                        },
-                        tooltip: {
-                          show: true,
-                          trigger: 'axis',
-                          appendToBody: true,
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderColor: '#EEEEEE',
-                          padding: [5, 8],
-                          textStyle: { color: '#333333', fontSize: 9, fontFamily: '"Outfit", "Inter", sans-serif' },
-                          extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-radius: 5px;',
-                          formatter: function(params) {
-                            let html = `<div style="font-weight:bold; font-size:9.5px; margin-bottom:3px; color:#1E293B;">📅 ${params[0].name}年</div>`;
-                            params.forEach(p => {
-                              html += `<div style="font-size:9px; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:2px;">
-                                <div style="display:flex; align-items:center; gap:3px; color:#64748B;">
-                                  <span style="display:inline-block; width:5px; height:5px; border-radius:50%; background-color:${p.color};"></span>
-                                  ${p.seriesName}
-                                </div>
-                                <span style="font-weight:800; color:#1E293B;">${p.value}%</span>
-                              </div>`;
-                            });
-                            return html;
-                          }
-                        },
-                        xAxis: {
-                          type: 'category',
-                          data: detail.timeline.map(item => item.year),
-                          axisLine: { show: false },
-                          axisTick: { show: false },
-                          axisLabel: {
-                            color: '#94A3B8',
-                            fontSize: 7.5,
-                            fontWeight: 'bold',
-                            margin: 5
-                          }
-                        },
-                        yAxis: {
-                          type: 'value',
-                          splitLine: { show: false },
-                          axisLine: { show: false },
-                          axisLabel: { show: false }
-                        },
-                        series: [
-                          {
-                            name: '本流派',
-                            data: detail.timeline.map(item => item.popularity),
-                            type: 'line',
-                            smooth: true,
-                            symbol: 'circle',
-                            symbolSize: 4,
-                            showSymbol: false,
-                            itemStyle: { color: '#FF5E7E' },
-                            lineStyle: { width: 2, color: '#FF5E7E' },
-                            areaStyle: {
-                              color: {
-                                type: 'linear',
-                                x: 0, y: 0, x2: 0, y2: 1,
-                                colorStops: [
-                                  { offset: 0, color: 'rgba(255, 94, 126, 0.2)' },
-                                  { offset: 1, color: 'rgba(255, 94, 126, 0.0)' }
-                                ]
-                              }
+                {detail && detail.timeline ? ( (() => {
+                  const timeline = detail.timeline || [];
+                  const parentTimeline = detail.parentTimeline || timeline;
+                  const globalTimeline = detail.globalTimeline || timeline;
+
+                  // 计算相对于大盘均值的流行度差值偏差，添加严格的数值及 NaN 安全防卫
+                  const relativePopularity = timeline.map((item, idx) => {
+                    const globalPop = (globalTimeline[idx] && typeof globalTimeline[idx].popularity === 'number') 
+                      ? globalTimeline[idx].popularity 
+                      : (item && typeof item.popularity === 'number' ? item.popularity : 0);
+                    const currentPop = item && typeof item.popularity === 'number' ? item.popularity : 0;
+                    const diff = currentPop - globalPop;
+                    return isNaN(diff) ? 0 : parseFloat(diff.toFixed(1));
+                  });
+
+                  const relativeParentPopularity = parentTimeline.map((item, idx) => {
+                    const globalPop = (globalTimeline[idx] && typeof globalTimeline[idx].popularity === 'number') 
+                      ? globalTimeline[idx].popularity 
+                      : (item && typeof item.popularity === 'number' ? item.popularity : 0);
+                    const currentPop = item && typeof item.popularity === 'number' ? item.popularity : 0;
+                    const diff = currentPop - globalPop;
+                    return isNaN(diff) ? 0 : parseFloat(diff.toFixed(1));
+                  });
+
+                  const relativeGlobalPopularity = globalTimeline.map(() => 0);
+
+                  // 找出偏差绝对值的最大值，设定关于 0 轴对称的 Y 轴范围，使大盘均值（0刻度）恒定在正中央，防御所有极端的 NaN/0 边界
+                  const allDiffs = [...relativePopularity, ...relativeParentPopularity];
+                  const maxAbs = allDiffs.reduce((max, val) => {
+                    const num = parseFloat(val);
+                    return isNaN(num) ? max : Math.max(max, Math.abs(num));
+                  }, 0);
+                  const yLimit = (isNaN(maxAbs) || maxAbs <= 0) ? 10 : parseFloat((maxAbs * 1.15).toFixed(1));
+
+                  return (
+                    <div style={{ width: '100%', height: '110px' }}>
+                      <ReactECharts
+                        style={{ width: '100%', height: '100%' }}
+                        option={{
+                          backgroundColor: 'transparent',
+                          grid: { left: 5, right: 5, top: 22, bottom: 5, containLabel: true },
+                          legend: {
+                            show: true,
+                            data: ['本流派', `大类 (${detail.parentName || '大类'})`, '大盘均值'],
+                            top: 0,
+                            icon: 'circle',
+                            itemWidth: 5,
+                            itemHeight: 5,
+                            itemGap: 6,
+                            textStyle: { fontSize: 8, color: '#64748B', fontFamily: '"Outfit", "Inter", sans-serif' }
+                          },
+                          tooltip: {
+                            show: true,
+                            trigger: 'axis',
+                            appendToBody: true,
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderColor: '#EEEEEE',
+                            padding: [5, 8],
+                            textStyle: { color: '#333333', fontSize: 9, fontFamily: '"Outfit", "Inter", sans-serif' },
+                            extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-radius: 5px;',
+                            formatter: function(params) {
+                              let html = `<div style="font-weight:bold; font-size:9.5px; margin-bottom:3px; color:#1E293B;">📅 ${params[0].name}年</div>`;
+                              params.forEach(p => {
+                                // 过滤辅助面积图系列，避免在 tooltip 中显示
+                                if (p.seriesName === '本流派-高' || p.seriesName === '本流派-低') return;
+                                const sign = p.value > 0 ? '+' : '';
+                                const displayVal = p.seriesName === '大盘均值' ? '基准 (0%)' : `${sign}${p.value}%`;
+                                html += `<div style="font-size:9px; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:2px;">
+                                  <div style="display:flex; align-items:center; gap:3px; color:#64748B;">
+                                    <span style="display:inline-block; width:5px; height:5px; border-radius:50%; background-color:${p.color};"></span>
+                                    ${p.seriesName}
+                                  </div>
+                                  <span style="font-weight:800; color:#1E293B;">${displayVal}</span>
+                                </div>`;
+                              });
+                              return html;
                             }
                           },
-                          {
-                            name: `大类 (${detail.parentName || '大类'})`,
-                            data: detail.parentTimeline ? detail.parentTimeline.map(item => item.popularity) : detail.timeline.map(item => item.popularity),
-                            type: 'line',
-                            smooth: true,
-                            symbol: 'circle',
-                            symbolSize: 3,
-                            showSymbol: false,
-                            itemStyle: { color: '#88B04B' },
-                            lineStyle: { width: 1.2, type: 'dashed', color: '#88B04B' }
+                          xAxis: {
+                            type: 'category',
+                            data: timeline.map(item => item.year),
+                            axisLine: { show: false, onZero: false },
+                            axisTick: { show: false },
+                            axisLabel: {
+                              color: '#94A3B8',
+                              fontSize: 7.5,
+                              fontWeight: 'bold',
+                              margin: 5
+                            }
                           },
-                          {
-                            name: '大盘均值',
-                            data: detail.globalTimeline ? detail.globalTimeline.map(item => item.popularity) : detail.timeline.map(item => item.popularity),
-                            type: 'line',
-                            smooth: true,
-                            symbol: 'circle',
-                            symbolSize: 3,
-                            showSymbol: false,
-                            itemStyle: { color: '#A2CBE6' },
-                            lineStyle: { width: 1.2, type: 'dashed', color: '#A2CBE6' }
-                          }
-                        ]
-                      }}
-                    />
-                  </div>
+                          yAxis: {
+                            type: 'value',
+                            min: -yLimit,
+                            max: yLimit,
+                            splitLine: { 
+                              show: true, 
+                              lineStyle: { 
+                                color: 'rgba(148, 163, 184, 0.12)', 
+                                type: 'dashed' 
+                              } 
+                            },
+                            axisLine: { show: false },
+                            axisLabel: { show: false }
+                          },
+                          series: [
+                            {
+                              name: '本流派',
+                              data: relativePopularity,
+                              type: 'line',
+                              smooth: true,
+                              symbol: 'circle',
+                              symbolSize: 4,
+                              showSymbol: false,
+                              itemStyle: { color: '#FF5E7E' },
+                              lineStyle: { width: 2, color: '#FF5E7E' }
+                            },
+                            {
+                              name: '本流派-高',
+                              data: relativePopularity.map(val => val > 0 ? val : 0),
+                              type: 'line',
+                              smooth: true,
+                              symbol: 'none',
+                              lineStyle: { width: 0 },
+                              itemStyle: { color: 'rgba(255, 94, 126, 0.15)' },
+                              areaStyle: {
+                                color: 'rgba(255, 94, 126, 0.15)'
+                              },
+                              tooltip: { show: false },
+                              legendHoverLink: false
+                            },
+                            {
+                              name: '本流派-低',
+                              data: relativePopularity.map(val => val < 0 ? val : 0),
+                              type: 'line',
+                              smooth: true,
+                              symbol: 'none',
+                              lineStyle: { width: 0 },
+                              itemStyle: { color: 'rgba(185, 202, 240, 0.18)' },
+                              areaStyle: {
+                                color: 'rgba(185, 202, 240, 0.18)'
+                              },
+                              tooltip: { show: false },
+                              legendHoverLink: false
+                            },
+                            {
+                              name: `大类 (${detail.parentName || '大类'})`,
+                              data: relativeParentPopularity,
+                              type: 'line',
+                              smooth: true,
+                              symbol: 'circle',
+                              symbolSize: 3,
+                              showSymbol: false,
+                              itemStyle: { color: '#88B04B' },
+                              lineStyle: { width: 1.2, type: 'dashed', color: '#88B04B' }
+                            },
+                            {
+                              name: '大盘均值',
+                              data: relativeGlobalPopularity,
+                              type: 'line',
+                              smooth: false,
+                              symbol: 'none',
+                              itemStyle: { color: '#94A3B8' },
+                              lineStyle: { width: 1.5, type: 'solid', color: '#94A3B8' }
+                            }
+                          ]
+                        }}
+                      />
+                    </div>
+
+                  );
+                })()
                 ) : (
                   <div style={{ fontSize: '9.5px', color: '#94A3B8', padding: '10px', textAlign: 'center' }}>
                     ⏳ 正在追溯历史数据...
