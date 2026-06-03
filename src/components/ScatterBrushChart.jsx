@@ -254,8 +254,10 @@ const ScatterBrushChart = ({ data, onBrush, selectedSong, hoveredGenres, clicked
       <div className="chart-container" style={{ flexGrow: 1, position: 'relative' }}>
 
         <ReactECharts 
+          key={hoveredGenres ? hoveredGenres.join(',') : ''}
           ref={chartRef}
           option={options} 
+          notMerge={true}
           style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0 }} 
         />
       </div>

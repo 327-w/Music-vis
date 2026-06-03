@@ -18,6 +18,11 @@ const RIBBON_R = 68.1818; // inner arc radius in polar units
 const ANIM_DURATION = 550; // ms
 const ANIM_SOFT = 0.18;   // soft edge width for sweep
 
+const cleanName = (name) => {
+  if (!name) return '';
+  return name.split('\n')[0].split('(')[0].trim().toLowerCase();
+};
+
 const ToggleableChordRadar = ({ 
   sunburstData, 
   graphData, 
@@ -63,6 +68,8 @@ const ToggleableChordRadar = ({
   const [coverUrl, setCoverUrl] = useState('');
   const [isLoadingCover, setIsLoadingCover] = useState(false);
   const cacheRef = useRef({}); // Cache object to store { 'Title - Artist': 'CoverURL' }
+
+  const [animT, setAnimT] = useState(0);
 
   const i18n = {
     danceability:'可舞度', energy:'能量', acousticness:'声学度', valence:'愉悦度',
@@ -256,26 +263,33 @@ const ToggleableChordRadar = ({
     let ribbonData = [];
     let highlightNames = new Set();
 
-    if (hoveredCategory) {
-      const validNames = new Set([hoveredCategory]);
-      const rootCat = sunburstData.find(c => c.name === hoveredCategory);
-      (rootCat?.children || []).forEach(c => validNames.add(c.name));
+    const activeHighlight = hoveredCategory || (clickedGenre ? clickedGenre.name : null);
+
+    if (activeHighlight) {
+      const activeClean = cleanName(activeHighlight);
+      const validNames = new Set([activeClean]);
+      const rootCat = sunburstData.find(c => cleanName(c.name) === activeClean);
+      (rootCat?.children || []).forEach(c => validNames.add(cleanName(c.name)));
 
       const links = graphData.links.filter(l =>
-        validNames.has(l.source) // Only links starting FROM current hovered category
+        validNames.has(cleanName(l.source)) // Only links starting FROM current hovered category
       );
 
       highlightNames = new Set(validNames);
       links.forEach(l => {
-        highlightNames.add(l.source); highlightNames.add(l.target);
-        highlightNames.add(nodeCatMap[l.source]); highlightNames.add(nodeCatMap[l.target]);
+        highlightNames.add(cleanName(l.source));
+        highlightNames.add(cleanName(l.target));
+        if (nodeCatMap[l.source]) highlightNames.add(cleanName(nodeCatMap[l.source]));
+        if (nodeCatMap[l.target]) highlightNames.add(cleanName(nodeCatMap[l.target]));
       });
 
       const linkCounts = {};
       let minSim = Infinity, maxSim = -Infinity;
       links.forEach(l => {
-        linkCounts[l.source] = (linkCounts[l.source] || 0) + 1;
-        linkCounts[l.target] = (linkCounts[l.target] || 0) + 1;
+        const srcClean = cleanName(l.source);
+        const tgtClean = cleanName(l.target);
+        linkCounts[srcClean] = (linkCounts[srcClean] || 0) + 1;
+        linkCounts[tgtClean] = (linkCounts[tgtClean] || 0) + 1;
         if (l.value < minSim) minSim = l.value;
         if (l.value > maxSim) maxSim = l.value;
       });
@@ -284,26 +298,29 @@ const ToggleableChordRadar = ({
       const offsets = {};
       const newColorInfo = [];
       ribbonData = links.map((l, idx) => {
+        const srcClean = cleanName(l.source);
+        const tgtClean = cleanName(l.target);
+
         // Source side geometry
-        const [ss, se] = angleRanges[l.source] || [0,1];
-        const so = offsets[l.source] || 0;
-        const aw = (1 / (linkCounts[l.source] || 1)) * (se - ss);
-        offsets[l.source] = so + aw;
+        const [ss, se] = angleRanges[l.source] || angleRanges[srcClean] || [0,1];
+        const so = offsets[srcClean] || 0;
+        const aw = (1 / (linkCounts[srcClean] || 1)) * (se - ss);
+        offsets[srcClean] = so + aw;
         const srcStart = ss + so, srcEnd = srcStart + aw;
 
         // Target side geometry
-        const [ts, te] = angleRanges[l.target] || [0,1];
-        const to2 = offsets[l.target] || 0;
-        const bw  = (1 / (linkCounts[l.target] || 1)) * (te - ts);
-        offsets[l.target] = to2 + bw;
+        const [ts, te] = angleRanges[l.target] || angleRanges[tgtClean] || [0,1];
+        const to2 = offsets[tgtClean] || 0;
+        const bw  = (1 / (linkCounts[tgtClean] || 1)) * (te - ts);
+        offsets[tgtClean] = to2 + bw;
         const tgtStart = ts + to2, tgtEnd = tgtStart + bw;
 
         const normSim = (l.value - minSim) / simRange;
         const targetOpacity = 0.25 + normSim * 0.6;
 
-        let srcColor = catColors[l.source] || '#FF8E8B';
-        const tgtColor = catColors[l.target] || '#FF8E8B';
-        const isSourceStart = validNames.has(l.source);
+        let srcColor = catColors[l.source] || catColors[srcClean] || '#FF8E8B';
+        const tgtColor = catColors[l.target] || catColors[tgtClean] || '#FF8E8B';
+        const isSourceStart = validNames.has(srcClean);
 
         const altColors = ['#A2CBE6', '#F3D291', '#F1A5B4'];
         srcColor = _blendHex(srcColor, altColors[idx % 3], 0.75);
@@ -315,7 +332,7 @@ const ToggleableChordRadar = ({
           targetOpacity
         });
 
-        const item = { value: [srcStart, srcEnd, tgtStart, tgtEnd, 0], itemStyle: { opacity: targetOpacity } };
+        const item = { value: [srcStart, srcEnd, tgtStart, tgtEnd, animT], itemStyle: { opacity: targetOpacity } };
         return item;
       });
 
@@ -326,10 +343,10 @@ const ToggleableChordRadar = ({
       ribbonBaseRef.current = [];
     }
 
-    const isSmall = hoveredCategory && !!nodeCatMap[hoveredCategory];
+    const isSmall = activeHighlight && !!nodeCatMap[cleanName(activeHighlight)];
     const getOp = (name, isRoot) => {
-      if (!hoveredCategory) return 1;
-      if (!highlightNames.has(name)) return 0.15;
+      if (!activeHighlight) return 1;
+      if (!highlightNames.has(cleanName(name))) return 0.15;
       if (isRoot && isSmall) return 0.45;
       return 1;
     };
@@ -460,14 +477,19 @@ const ToggleableChordRadar = ({
         }
       ]
     };
-  }, [sunburstData, graphData, hoveredCategory]);
+  }, [sunburstData, graphData, hoveredCategory, clickedGenre, animT]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RAF ANIMATION
   // ─────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (!hoveredCategory) return;
+    
+    const activeHighlight = hoveredCategory || (clickedGenre ? clickedGenre.name : null);
+    if (!activeHighlight) {
+      setAnimT(0);
+      return;
+    }
 
     let startTime = null;
 
@@ -476,18 +498,7 @@ const ToggleableChordRadar = ({
       const raw = Math.min((ts - startTime) / ANIM_DURATION, 1);
       const t = raw < 0.5 ? 2 * raw * raw : 1 - (-2 * raw + 2) ** 2 / 2;
 
-      const ec = echartsRef.current?.getEchartsInstance?.();
-      const base = ribbonBaseRef.current;
-      if (ec && base.length > 0) {
-        const newData = base.map((geo, i) => {
-          const op = colorInfoRef.current[i]?.targetOpacity || 0.75;
-          return {
-            value: [geo[0], geo[1], geo[2], geo[3], t],
-            itemStyle: { opacity: op }
-          };
-        });
-        ec.setOption({ series: [{ id: 'ribbon-custom', data: newData }] });
-      }
+      setAnimT(t);
 
       if (raw < 1) rafRef.current = requestAnimationFrame(tick);
     };
@@ -495,10 +506,9 @@ const ToggleableChordRadar = ({
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      const ec = echartsRef.current?.getEchartsInstance?.();
-      if (ec) ec.setOption({ series: [{ id: 'ribbon-custom', data: [] }] });
+      setAnimT(0);
     };
-  }, [hoveredCategory]);
+  }, [hoveredCategory, clickedGenre]);
 
   // 终极联动方案：在 hoveredCategory 改变时，直接通过原生 API 强行派发官方的 highlight / downplay 动作
   // 这不仅 100% 确保旭日图高亮扇区瞬间点亮，更触发了 ECharts 原生极为华丽的“扇区轻微放大与描边加粗”的物理质感，
@@ -508,7 +518,9 @@ const ToggleableChordRadar = ({
       const ec = echartsRef.current?.getEchartsInstance?.();
       if (!ec) return;
 
-      if (hoveredCategory) {
+      const activeHighlight = hoveredCategory || (clickedGenre ? clickedGenre.name : null);
+
+      if (activeHighlight) {
         // 1. 先清除此前遗留的其它高亮状态
         ec.dispatchAction({
           type: 'downplay',
@@ -519,7 +531,7 @@ const ToggleableChordRadar = ({
         ec.dispatchAction({
           type: 'highlight',
           seriesIndex: [0, 2],
-          name: hoveredCategory
+          name: activeHighlight
         });
       } else {
         // 3. 复位清空
@@ -531,7 +543,7 @@ const ToggleableChordRadar = ({
     }, 60);
 
     return () => clearTimeout(timer);
-  }, [hoveredCategory]);
+  }, [hoveredCategory, clickedGenre]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RIGHT CHART: Standalone Radar
@@ -768,6 +780,7 @@ const ToggleableChordRadar = ({
                 ref={echartsRef}
                 key="chord-sunburst"
                 option={chordOptions}
+                notMerge={true}
                 style={{ height:'100%', width:'100%' }}
                 onEvents={chordEvents}
               />

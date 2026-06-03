@@ -76,11 +76,8 @@ function App() {
       <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px', marginBottom: '16px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', letterSpacing: '-0.5px' }}>
-            🔮 Music Dimension Cockpit
+            音乐流派声学特征可视化分析
           </h1>
-          <p style={{ margin: '3px 0 0 0', fontSize: '11px', color: '#64748B', fontWeight: '600' }}>
-            极客一屏集成驾驶舱 · 音乐特征演变与流派聚类探索
-          </p>
         </div>
       </div>
 

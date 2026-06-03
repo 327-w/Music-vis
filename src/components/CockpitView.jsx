@@ -85,6 +85,39 @@ const CockpitView = ({
   const dragStartPosGenre = React.useRef({ x: 0, y: 0 });
   const dragStartOffsetGenre = React.useRef({ x: 0, y: 0 });
 
+  // 线性平铺所有旭日图节点（包含父大类和子流派），用于在详情浮窗左右箭头点击时依次切换
+  const flatGenresList = React.useMemo(() => {
+    if (!data || !data.sunburst) return [];
+    const list = [];
+    data.sunburst.forEach(parent => {
+      list.push(parent);
+      if (parent.children) {
+        parent.children.forEach(child => {
+          list.push(child);
+        });
+      }
+    });
+    return list;
+  }, [data]);
+
+  const handleSwitchGenre = (direction) => {
+    if (flatGenresList.length === 0 || !clickedGenre) return;
+    const currentIndex = flatGenresList.findIndex(g => g.name === clickedGenre.name);
+    if (currentIndex === -1) return;
+    
+    let nextIndex;
+    if (direction === 'next') {
+      nextIndex = (currentIndex + 1) % flatGenresList.length;
+    } else {
+      nextIndex = (currentIndex - 1 + flatGenresList.length) % flatGenresList.length;
+    }
+    
+    const nextGenre = flatGenresList[nextIndex];
+    setSelectedGenre(nextGenre);
+    setClickedGenre(nextGenre);
+    setHoveredCategory(nextGenre.name); // 同步更新 hoveredCategory，驱动旭日图弦线与聚类散点图联动切换
+  };
+
   // 📊 对比雷达图的状态管理
   const [isCompareModalOpen, setIsCompareModalOpen] = React.useState(false);
   const [selectedCompareGenres, setSelectedCompareGenres] = React.useState([]);
@@ -175,37 +208,53 @@ const CockpitView = ({
     e.preventDefault();
   }, [posWord, handleMouseMoveWord, handleMouseUpWord]);
 
-  // 当切换词时重置位置
+  // 当切换词时，仅在首次打开时重置位置，在切换词时不重置
+  const prevClickedWordRef = React.useRef(null);
   React.useEffect(() => {
-    setPosWord({ x: 0, y: 0 });
+    if (clickedWord && !prevClickedWordRef.current) {
+      setPosWord({ x: 0, y: 0 });
+    }
+    prevClickedWordRef.current = clickedWord;
   }, [clickedWord]);
+
 
   // 🧬 计算选中歌词词频的流派与加权声学情感特征
   const wordAnalysisData = React.useMemo(() => {
     if (!clickedWord || !genreDetails) return null;
     
-    const genreDist = [];
+    // 1. 初始化 7 大父流派的频次统计
+    const parentFreqs = {};
+    const parentNames = Array.from(new Set(compareGenresList.map(cg => cg.category)));
+    parentNames.forEach(name => {
+      parentFreqs[name] = 0;
+    });
+
     let totalFreq = 0;
-    
-    Object.keys(genreDetails).forEach(gName => {
-      const words = genreDetails[gName].words || [];
+
+    // 2. 遍历所有子流派（叶子节点），将其词频累加到其所属的父流派中，避免父子双重计数
+    compareGenresList.forEach(cg => {
+      if (cg.isParent) return; // 跳过父节点，只统计子节点（叶子节点）以防重复计算
+      
+      const words = genreDetails[cg.name]?.words || [];
       const found = words.find(w => w.name === clickedWord);
       if (found) {
-        genreDist.push({
-          name: gName,
-          value: found.value
-        });
-        totalFreq += found.value;
+        if (parentFreqs[cg.category] !== undefined) {
+          parentFreqs[cg.category] += found.value;
+          totalFreq += found.value;
+        }
       }
     });
 
-    genreDist.sort((a, b) => b.value - a.value);
-    let topGenres = genreDist.slice(0, 7);
-    if (genreDist.length > 7) {
-      const otherValue = genreDist.slice(7).reduce((sum, g) => sum + g.value, 0);
-      topGenres.push({ name: '其他流派', value: otherValue });
-    }
+    // 3. 将结果转换为 ECharts 饼图/玫瑰图所需的数据格式
+    const genreDist = Object.keys(parentFreqs)
+      .map(pName => ({
+        name: pName,
+        value: parentFreqs[pName]
+      }))
+      .filter(item => item.value > 0) // 只显示有频次的流派
+      .sort((a, b) => b.value - a.value);
 
+    // 4. 计算声学情感维度的加权均值
     const featuresList = [
       'danceability', 'energy', 'acousticness', 'valence', 'liveness', 'instrumentalness', 'speechiness'
     ];
@@ -216,10 +265,11 @@ const CockpitView = ({
     let weightSum = 0;
 
     genreDist.forEach(item => {
-      const matched = compareGenresList.find(cg => cg.name === item.name);
-      if (matched && matched.features) {
+      // 寻找对应的父流派特征
+      const matchedObj = compareGenresList.find(cg => cg.name === item.name && cg.isParent);
+      if (matchedObj && matchedObj.features) {
         featuresList.forEach(key => {
-          weightedFeatures[key] += (matched.features[key] ?? 0.5) * item.value;
+          weightedFeatures[key] += (matchedObj.features[key] ?? 0.5) * item.value;
         });
         weightSum += item.value;
       }
@@ -238,7 +288,7 @@ const CockpitView = ({
 
     return {
       word: clickedWord,
-      genreDist: topGenres,
+      genreDist: genreDist,
       features: finalFeatures,
       totalFreq
     };
@@ -997,10 +1047,15 @@ const CockpitView = ({
     e.preventDefault();
   }, [posGenre, handleMouseMoveGenre, handleMouseUpGenre]);
 
-  // 当切换选中不同流派时，重置流派位置
+  // 当切换选中不同流派时，仅在首次打开时重置流派位置，在切换流派时不重置
+  const prevClickedGenreRef = React.useRef(null);
   React.useEffect(() => {
-    setPosGenre({ x: 0, y: 0 });
+    if (clickedGenre && !prevClickedGenreRef.current) {
+      setPosGenre({ x: 0, y: 0 });
+    }
+    prevClickedGenreRef.current = clickedGenre;
   }, [clickedGenre]);
+
 
   // 组件卸载时安全清理全局事件监听
   React.useEffect(() => {
@@ -1014,11 +1069,12 @@ const CockpitView = ({
     };
   }, [handleMouseMove, handleMouseUp, handleMouseMoveGenre, handleMouseUpGenre, handleMouseMoveWord, handleMouseUpWord]);
 
-  // 计算旭日图悬停节点关联的所有流派名字（包含主流派旗下的所有子流派）
+  // 计算旭日图激活节点关联的所有流派名字（包含主流派旗下的所有子流派），支持悬停与点击锁定流派
   const hoveredGenres = React.useMemo(() => {
-    if (!hoveredCategory || !data || !data.sunburst) return [];
+    const activeCategory = hoveredCategory || (clickedGenre ? clickedGenre.name : null);
+    if (!activeCategory || !data || !data.sunburst) return [];
     
-    const cleanHover = hoveredCategory.trim().toLowerCase();
+    const cleanHover = activeCategory.trim().toLowerCase();
     
     // 寻找匹配的主流派
     const matchedParent = data.sunburst.find(parent => {
@@ -1035,7 +1091,7 @@ const CockpitView = ({
     } else {
       return [cleanHover];
     }
-  }, [hoveredCategory, data]);
+  }, [hoveredCategory, clickedGenre, data]);
 
   // 核心逆向联动副作用：当用户点击歌曲列表中的歌曲时，自动反向检索该歌曲所属的流派，并同步高亮雷达与旭日图；取消选中时自动清空复位
   React.useEffect(() => {
@@ -1123,9 +1179,9 @@ const CockpitView = ({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(145,158,171,0.1)', paddingBottom: '10px', marginBottom: '10px' }}>
           <h3 style={{ margin: 0, fontSize: '11.5px', color: '#1E293B', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>🌀 流派多维分布结构</span>
+            <span>🌀 流派分布结构</span>
           </h3>
-          <span style={{ fontSize: '9px', color: '#94A3B8', fontWeight: 'bold' }}>点击/悬停 联动雷达与星云</span>
+          <span style={{ fontSize: '9px', color: '#94A3B8', fontWeight: 'bold' }}>鼠标悬停/点击</span>
         </div>
         
         <div style={{ flexGrow: 1, minHeight: 0, width: '100%', position: 'relative' }}>
@@ -1195,6 +1251,7 @@ const CockpitView = ({
               <span>🌀 流派声学特征七维雷达</span>
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '9px', color: '#94A3B8', fontWeight: 'bold' }}>实时相似流派对比</span>
               <button
                 onClick={() => setIsCompareModalOpen(true)}
                 style={{
@@ -1223,7 +1280,6 @@ const CockpitView = ({
               >
                 📊 开启多流派对比
               </button>
-              <span style={{ fontSize: '9px', color: '#94A3B8', fontWeight: 'bold' }}>实时相似流派对比</span>
             </div>
           </div>
 
@@ -1276,7 +1332,7 @@ const CockpitView = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(145,158,171,0.1)', paddingBottom: '6px', marginBottom: '4px' }}>
             <h3 style={{ margin: 0, fontSize: '11.5px', color: '#1E293B', fontWeight: '800' }}>
-              🌌 歌曲KMeans星云聚类与框选过滤 (Energy vs Valence)
+              🌌 歌曲KMeans聚类与框选 （能量与愉悦度）
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
@@ -1563,7 +1619,7 @@ const CockpitView = ({
               <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', fontSize: '8.5px', color: '#64748B', fontWeight: 'bold', borderBottom: '1px solid rgba(145, 158, 171, 0.08)', paddingBottom: '8px', marginTop: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ display: 'inline-block', width: '8px', height: '8px', background: 'rgba(255, 94, 126, 0.22)', border: '1.5px solid #FF5E7E', borderRadius: '2px' }} />
-                  <span>本歌真实</span>
+                  <span>本歌</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ display: 'inline-block', width: '12px', height: '0px', borderTop: '1.5px dashed #A2CBE6' }} />
@@ -1614,7 +1670,7 @@ const CockpitView = ({
                       data: [
                         {
                           value: (data.radar_features || []).map(key => getSongFeatureValue(selectedSong, key)),
-                          name: '本歌真实',
+                          name: '本歌',
                           itemStyle: { color: '#FF5E7E' },
                           lineStyle: { width: 2, color: '#FF5E7E' },
                           areaStyle: { color: 'rgba(255, 94, 126, 0.22)' }
@@ -1923,10 +1979,109 @@ const CockpitView = ({
                   </div>
                 ) : (
                   <div style={{ fontSize: '9.5px', color: '#94A3B8', padding: '10px', textAlign: 'center' }}>
-                    ⏳ 正在追溯历史音轨纪元...
+                    ⏳ 正在追溯历史数据...
                   </div>
                 )}
               </div>
+
+              {/* 左右流派切换微动小箭头 */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwitchGenre('prev');
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="上一个流派 (逆时针)"
+                style={{
+                  position: 'absolute',
+                  left: '-16px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'rgba(255, 255, 255, 0.9)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(145, 158, 171, 0.2)',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                  color: '#64748B',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  outline: 'none',
+                  zIndex: 102
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#FFFFFF';
+                  e.target.style.color = '#B088F5';
+                  e.target.style.transform = 'translateY(-50%) scale(1.08)';
+                  e.target.style.boxShadow = '0 6px 16px rgba(176, 136, 245, 0.2)';
+                  e.target.style.borderColor = '#B088F5';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 255, 255, 0.9)';
+                  e.target.style.color = '#64748B';
+                  e.target.style.transform = 'translateY(-50%) scale(1)';
+                  e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)';
+                  e.target.style.borderColor = 'rgba(145, 158, 171, 0.2)';
+                }}
+              >
+                ◀
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSwitchGenre('next');
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="下一个流派 (顺时针)"
+                style={{
+                  position: 'absolute',
+                  right: '-16px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'rgba(255, 255, 255, 0.9)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  border: '1px solid rgba(145, 158, 171, 0.2)',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                  color: '#64748B',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  outline: 'none',
+                  zIndex: 102
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#FFFFFF';
+                  e.target.style.color = '#B088F5';
+                  e.target.style.transform = 'translateY(-50%) scale(1.08)';
+                  e.target.style.boxShadow = '0 6px 16px rgba(176, 136, 245, 0.2)';
+                  e.target.style.borderColor = '#B088F5';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 255, 255, 0.9)';
+                  e.target.style.color = '#64748B';
+                  e.target.style.transform = 'translateY(-50%) scale(1)';
+                  e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)';
+                  e.target.style.borderColor = 'rgba(145, 158, 171, 0.2)';
+                }}
+              >
+                ▶
+              </button>
             </div>
           </>
         );
@@ -2017,7 +2172,7 @@ const CockpitView = ({
               }}
             >
               <div style={{ fontSize: '8px', color: '#64748B', fontWeight: '800', marginBottom: '2px' }}>
-                🌹 1. 流派词频浓度分布 (南丁格尔玫瑰)
+                🌹 1. 流派词频分布
               </div>
               <div style={{ flexGrow: 1, minHeight: 0, width: '100%' }}>
                 <ReactECharts
@@ -2031,7 +2186,7 @@ const CockpitView = ({
             {/* 右半部分：声学情感指纹图（极坐标单轴柱状图） */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <div style={{ fontSize: '8px', color: '#64748B', fontWeight: '800', marginBottom: '2px' }}>
-                🧪 2. 声学维度情感指纹 (极坐标波谱)
+                🧪 2. 声学维度分布
               </div>
               <div style={{ flexGrow: 1, minHeight: 0, width: '100%' }}>
                 <ReactECharts
@@ -2095,10 +2250,10 @@ const CockpitView = ({
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: '13px', fontWeight: '900', color: '#1E293B', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  📊 跨流派声学维度横向大对比
+                  跨流派声学维度对比
                 </h2>
                 <p style={{ margin: '4px 0 0 0', fontSize: '9.5px', color: '#64748B', fontWeight: 'bold' }}>
-                  支持任意勾选 2 到 4 个流派类别（大类及子流派），多边形多轴重叠映射，直观对比流派底蕴
+                  支持任意勾选 2 到 4 个流派类别（大类及子流派）
                 </p>
               </div>
               <button
@@ -2394,10 +2549,10 @@ const CockpitView = ({
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: '13px', fontWeight: '900', color: '#1E293B', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  📊 跨流派 KMeans 星云情感分布对比
+                  跨流派 KMeans 聚类情感分布对比
                 </h2>
                 <p style={{ margin: '4px 0 0 0', fontSize: '9.5px', color: '#64748B', fontWeight: 'bold' }}>
-                  自主选择 2 到 4 个流派类别，展示它们在 Energy vs Valence 双维度情感象限的散点分布对比，并在下方联动流派情感构成占比与单曲列表
+                  自主选择 2 到 4 个流派类别，展示它们在 能量vs愉悦度 双维度情感象限的散点分布对比
                 </p>
               </div>
               <button
@@ -2625,7 +2780,7 @@ const CockpitView = ({
                     {/* 下半部分：聚类成分构成比例 100% 堆叠图 */}
                     <div style={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ fontSize: '9px', color: '#64748B', fontWeight: '800', borderLeft: '3px solid #6BBAA7', paddingLeft: '5px', lineHeight: 1 }}>
-                        📊 各流派的 KMeans 情感成分量化构成比拼 (100% 堆叠)
+                        各流派的聚类情感成分构成
                       </div>
                       <div style={{ flexGrow: 1, minHeight: 0, width: '100%' }}>
                         <ReactECharts
