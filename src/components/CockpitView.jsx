@@ -1213,6 +1213,7 @@ const CockpitView = ({
             indicatorNames={data.radar_features}
             featureMaxes={data.featureMaxes}
             scatterData={data.scatter}
+            brushedData={brushedData}
             onNodeClick={(node) => {
               if (selectedSong || clickedGenre) return; // 歌曲或流派已锁定选中时冻结点击切换
               setSelectedGenre(node);

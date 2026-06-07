@@ -38,7 +38,8 @@ const ToggleableChordRadar = ({
   hoveredCategory: externalHoveredCategory,
   setHoveredCategory: externalSetHoveredCategory,
   selectedSong = null, // 接收外层单曲选中状态以实现视图冰冻
-  clickedGenre = null // 接收外层流派选中锁定状态以实现视图冰冻
+  clickedGenre = null, // 接收外层流派选中锁定状态以实现视图冰冻
+  brushedData = []
 }) => {
   const [localHoveredCategory, setLocalHoveredCategory] = useState(null);
   const hoveredCategory = externalHoveredCategory !== undefined ? externalHoveredCategory : localHoveredCategory;
@@ -358,6 +359,42 @@ const ToggleableChordRadar = ({
       }))
     }));
 
+    const brushedTotal = Array.isArray(brushedData) ? brushedData.length : 0;
+    const brushedGenreCounts = {};
+    if (brushedTotal > 0) {
+      brushedData.forEach(song => {
+        const genreKey = cleanName(song?.[4]);
+        if (genreKey) brushedGenreCounts[genreKey] = (brushedGenreCounts[genreKey] || 0) + 1;
+      });
+    }
+    const maxBrushedGenreCount = Math.max(0, ...Object.values(brushedGenreCounts));
+
+    const brushRingData = [];
+    sunburstData.forEach((root, rootIdx) => {
+      const rootColor = BASE_COLORS[rootIdx % BASE_COLORS.length];
+      (root.children || []).forEach(child => {
+        const count = brushedGenreCounts[cleanName(child.name)] || 0;
+        const ratio = brushedTotal > 0 ? count / brushedTotal : 0;
+        brushRingData.push({
+          name: child.name,
+          value: child.value,
+          brushCount: count,
+          brushTotal: brushedTotal,
+          brushRatio: ratio,
+          itemStyle: {
+            color: rootColor,
+            opacity: brushedTotal > 0
+              ? (count > 0 ? Math.max(0.12, count / maxBrushedGenreCount) : 0.02)
+              : 0
+          }
+        });
+      });
+    });
+
+    const brushRingRadius = viewMode === 'sunburst'
+      ? ['95%', '99%']
+      : (isVertical ? ['79%', '83%'] : ['93%', '97%']);
+
     return {
       color: BASE_COLORS,
       tooltip: {
@@ -474,10 +511,45 @@ const ToggleableChordRadar = ({
             { r0: viewMode === 'sunburst' ? '62%' : (isVertical ? '50%' : '60%'), r: viewMode === 'sunburst' ? '94%' : (isVertical ? '78%' : '92%'), itemStyle:{color:'transparent',borderColor:'transparent'}, label:{position:'inside',fontSize: viewMode === 'sunburst' ? 10 : (isVertical ? 8 : 10),minAngle:3} }
           ],
           z: 10
+        },
+        {
+          name: '框选流派占比',
+          type: 'pie',
+          data: brushRingData,
+          radius: brushRingRadius,
+          center: ['50%', '50%'],
+          startAngle: 90,
+          clockwise: true,
+          minAngle: 0,
+          stillShowZeroSum: true,
+          avoidLabelOverlap: false,
+          label: { show: false },
+          labelLine: { show: false },
+          emphasis: {
+            scale: false,
+            itemStyle: {
+              opacity: brushedTotal > 0 ? 1 : 0,
+              borderColor: '#FFFFFF',
+              borderWidth: 1.2
+            }
+          },
+          itemStyle: {
+            borderColor: 'rgba(255,255,255,0.85)',
+            borderWidth: brushedTotal > 0 ? 0.8 : 0
+          },
+          tooltip: {
+            show: brushedTotal > 0,
+            formatter: (params) => {
+              const d = params.data || {};
+              const pct = ((d.brushRatio || 0) * 100).toFixed(1);
+              return `<span style="font-weight:bold;">${params.name}</span><br/><span style="color:#666;font-size:12px;">框选占比：${pct}% (${d.brushCount || 0}/${d.brushTotal || 0} 首)</span>`;
+            }
+          },
+          z: 6
         }
       ]
     };
-  }, [sunburstData, graphData, hoveredCategory, clickedGenre, animT]);
+  }, [sunburstData, graphData, hoveredCategory, clickedGenre, animT, brushedData, viewMode, isVertical]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RAF ANIMATION
