@@ -288,6 +288,45 @@ const CockpitView = ({
   }, [clickedWord, genreDetails, compareGenresList]);
 
   // 🌹 图表一：流派亲和度分析 -> ECharts 南丁格尔玫瑰图
+  const validTitleWordMap = React.useMemo(() => {
+    const wordMap = new Map();
+    if (!genreDetails) return wordMap;
+
+    Object.values(genreDetails).forEach(detail => {
+      (detail?.words || []).forEach(item => {
+        const name = (item?.name || '').toString().trim();
+        if (name) wordMap.set(name.toLowerCase(), name);
+      });
+    });
+
+    return wordMap;
+  }, [genreDetails]);
+
+  const getClickableTitleParts = React.useCallback((title) => {
+    const text = (title || '').toString();
+    const parts = [];
+    const tokenRegex = /[\p{L}\p{N}]+/gu;
+    let lastIndex = 0;
+
+    for (const match of text.matchAll(tokenRegex)) {
+      const token = match[0];
+      const index = match.index ?? 0;
+      if (index > lastIndex) {
+        parts.push({ text: text.slice(lastIndex, index), word: null });
+      }
+
+      const canonicalWord = validTitleWordMap.get(token.toLowerCase()) || null;
+      parts.push({ text: token, word: canonicalWord });
+      lastIndex = index + token.length;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push({ text: text.slice(lastIndex), word: null });
+    }
+
+    return parts.length > 0 ? parts : [{ text, word: null }];
+  }, [validTitleWordMap]);
+
   const getWordGenreOption = () => {
     if (!wordAnalysisData) return {};
     const colors = ['#FF8A9A', '#6BBAA7', '#5B9BD5', '#B088F5', '#EDC948', '#F28E2B', '#86BCB6', '#CBD5E1'];
@@ -1514,6 +1553,7 @@ const CockpitView = ({
           };
           return mapping[key] ?? 0.5;
         };
+        const clickableTitleParts = getClickableTitleParts(selectedSong[2]);
         return (
           <>
             {/* 水晶蔷薇粉呼吸脉冲灯 Keyframes 动画 */}
@@ -1571,7 +1611,39 @@ const CockpitView = ({
               >
                 <div style={{ overflow: 'hidden', paddingRight: '8px' }}>
                   <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '800', color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={selectedSong[2]}>
-                    🎵 {selectedSong[2]}
+                    <span>🎵 </span>
+                    {clickableTitleParts.map((part, idx) => {
+                      if (!part.word) {
+                        return <span key={`title-part-${idx}`}>{part.text}</span>;
+                      }
+
+                      return (
+                        <span
+                          key={`title-part-${idx}`}
+                          title={`点击分析词汇：${part.word}`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setClickedWord(part.word);
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            color: 'inherit',
+                            textDecoration: 'none',
+                            textUnderlineOffset: '2px',
+                            paddingBottom: '1px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.textDecoration = 'none';
+                          }}
+                        >
+                          {part.text}
+                        </span>
+                      );
+                    })}
                   </h4>
                   <div style={{ fontSize: '10.5px', color: '#64748B', fontWeight: 'bold', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     🎤 {selectedSong[3]}
