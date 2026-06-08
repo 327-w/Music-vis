@@ -265,11 +265,21 @@ const ToggleableChordRadar = ({
     let highlightNames = new Set();
 
     const activeHighlight = hoveredCategory || (clickedGenre ? clickedGenre.name : null);
+    const activeClean = activeHighlight ? cleanName(activeHighlight) : '';
+    const exactGraphNode = activeHighlight
+      ? graphData.nodes.find(n => n.name === activeHighlight)
+      : null;
+    const exactRootCat = activeHighlight
+      ? sunburstData.find(c => c.name === activeHighlight)
+      : null;
+    const fallbackRootCat = activeHighlight && !exactGraphNode
+      ? sunburstData.find(c => cleanName(c.name) === activeClean)
+      : null;
+    const rootCat = exactRootCat || fallbackRootCat;
+    const activeIsSmallNode = !!exactGraphNode && !exactRootCat;
 
     if (activeHighlight) {
-      const activeClean = cleanName(activeHighlight);
-      const validNames = new Set([activeClean]);
-      const rootCat = sunburstData.find(c => cleanName(c.name) === activeClean);
+      const validNames = new Set([rootCat ? cleanName(rootCat.name) : activeClean]);
       (rootCat?.children || []).forEach(c => validNames.add(cleanName(c.name)));
 
       const links = graphData.links.filter(l =>
@@ -344,7 +354,7 @@ const ToggleableChordRadar = ({
       ribbonBaseRef.current = [];
     }
 
-    const isSmall = activeHighlight && !!nodeCatMap[cleanName(activeHighlight)];
+    const isSmall = activeHighlight && activeIsSmallNode;
     const getOp = (name, isRoot) => {
       if (!activeHighlight) return 1;
       if (!highlightNames.has(cleanName(name))) return 0.15;
